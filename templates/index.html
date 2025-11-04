@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parts Lifecycle Checker</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 1000px;
+            height: 90vh;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .chat-header h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+
+        .chat-header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f5f7fa;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            display: flex;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message-bubble {
+            max-width: 85%;
+            padding: 16px;
+            border-radius: 18px;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .message.user .message-bubble {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-bottom-right-radius: 4px;
+            font-family: 'Courier New', monospace;
+            white-space: pre;
+        }
+
+        .message.assistant .message-bubble {
+            background: white;
+            color: #333;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Markdown table styling */
+        .message-bubble {
+            overflow-x: auto;
+            overflow-y: visible;
+        }
+        
+        .message-bubble table {
+            width: 100%;
+            min-width: 600px;
+            border-collapse: collapse;
+            margin: 15px 0;
+            font-size: 13px;
+            display: table;
+            table-layout: auto;
+            border: 1px solid #dee2e6;
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .message-bubble table thead {
+            background: #f8f9fa;
+        }
+
+        .message-bubble table th,
+        .message-bubble table td {
+            padding: 12px 10px;
+            text-align: left;
+            border: 1px solid #dee2e6;
+            word-wrap: break-word;
+            vertical-align: top;
+        }
+
+        .message-bubble table th {
+            font-weight: 600;
+            background: #e9ecef;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .message-bubble table tbody tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+        
+        .message-bubble table tbody tr:hover {
+            background: #e9ecef;
+        }
+        
+        /* Column width adjustments */
+        .message-bubble table td:nth-child(1) {
+            /* Part Manufacturer */
+            min-width: 120px;
+            max-width: 200px;
+        }
+        .message-bubble table td:nth-child(2) {
+            /* Manufacturer Part # */
+            min-width: 120px;
+            max-width: 200px;
+        }
+        .message-bubble table td:nth-child(3) {
+            /* AI Status */
+            min-width: 80px;
+            max-width: 120px;
+        }
+        .message-bubble table td:nth-child(4) {
+            /* Notes by AI */
+            min-width: 300px;
+            max-width: 600px;
+        }
+        .message-bubble table td:nth-child(5) {
+            /* AI Confidence */
+            min-width: 100px;
+            max-width: 120px;
+        }
+
+        .chat-input-container {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .chat-input-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .chat-input {
+            width: 100%;
+            min-height: 120px;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            font-size: 13px;
+            font-family: 'Courier New', monospace;
+            outline: none;
+            transition: border-color 0.3s;
+            resize: vertical;
+        }
+
+        .chat-input:focus {
+            border-color: #667eea;
+        }
+
+        .input-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .send-button {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .send-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .send-button:active {
+            transform: translateY(0);
+        }
+
+        .send-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .clear-button {
+            padding: 8px 16px;
+            background: #f5f7fa;
+            color: #666;
+            border: 1px solid #e0e0e0;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+
+        .clear-button:hover {
+            background: #e0e0e0;
+        }
+
+        .input-hint {
+            font-size: 11px;
+            color: #999;
+            margin-top: 5px;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(102, 126, 234, 0.3);
+            border-radius: 50%;
+            border-top-color: #667eea;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        /* Markdown formatting */
+        .message-bubble code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .message-bubble pre {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+
+        .message-bubble pre code {
+            background: none;
+            padding: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>🔍 Parts Lifecycle Checker</h1>
+            <p>Automated status checking with confidence scoring</p>
+        </div>
+        
+        <div class="chat-messages" id="chatMessages">
+            <div class="message assistant">
+                <div class="message-bubble">
+                    Ready to analyze parts lifecycle status. Please paste your parts list in the format:
+
+Part Manufacturer	Manufacturer Part #
+
+Example:
+BANNER	45136
+BANNER	75671
+ALLEN BRADLEY	1734-232ASC
+
+I'll check each part's status and return results in JSON format, displayed as a table with Part Manufacturer, Manufacturer Part #, AI Status, Notes by AI, and AI Confidence.
+                </div>
+            </div>
+        </div>
+        
+        <div class="chat-input-container">
+            <div class="chat-input-wrapper">
+                <textarea 
+                    class="chat-input" 
+                    id="chatInput" 
+                    placeholder="Paste your parts list here (tab or pipe separated)..."
+                    rows="4"
+                ></textarea>
+                <div class="input-actions">
+                    <button class="send-button" id="sendButton">Analyze Parts</button>
+                    <button class="clear-button" id="clearButton">Clear History</button>
+                </div>
+                <div class="input-hint">
+                    💡 Tip: Paste your list as-is (tab or pipe separated). The system will automatically process all parts.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Simple markdown table to HTML converter
+        function markdownToHtml(text) {
+            // Convert markdown tables to HTML
+            const tableRegex = /(\|.+\|\n\|[-\s:]+\|\n(\|.+\|\n?)+)/g;
+            
+            text = text.replace(tableRegex, (match) => {
+                const lines = match.trim().split('\n');
+                if (lines.length < 2) return match;
+                
+                const header = lines[0];
+                const separator = lines[1];
+                const rows = lines.slice(2);
+                
+                const headers = header.split('|').map(h => h.trim()).filter(h => h);
+                let html = '<table><thead><tr>';
+                headers.forEach(h => {
+                    html += `<th>${h}</th>`;
+                });
+                html += '</tr></thead><tbody>';
+                
+                rows.forEach(row => {
+                    const cells = row.split('|').map(c => c.trim()).filter(c => c);
+                    if (cells.length > 0) {
+                        html += '<tr>';
+                        cells.forEach(cell => {
+                            html += `<td>${cell}</td>`;
+                        });
+                        html += '</tr>';
+                    }
+                });
+                
+                html += '</tbody></table>';
+                return html;
+            });
+            
+            // Convert code blocks
+            text = text.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+            text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+            
+            // Convert line breaks
+            text = text.replace(/\n/g, '<br>');
+            
+            return text;
+        }
+
+        const chatMessages = document.getElementById('chatMessages');
+        const chatInput = document.getElementById('chatInput');
+        const sendButton = document.getElementById('sendButton');
+        const clearButton = document.getElementById('clearButton');
+        
+        let sessionId = 'session_' + Date.now();
+        let isLoading = false;
+
+        // Convert JSON data to HTML table
+        function jsonToTable(jsonData) {
+            console.log('jsonToTable called with:', jsonData);
+            
+            if (!jsonData) {
+                console.error('jsonToTable: jsonData is null or undefined');
+                return '<p class="error">No data received.</p>';
+            }
+            
+            if (!jsonData.results) {
+                console.error('jsonToTable: jsonData.results is missing');
+                return '<p class="error">Invalid JSON format: missing "results" field.</p>';
+            }
+            
+            if (!Array.isArray(jsonData.results)) {
+                console.error('jsonToTable: jsonData.results is not an array');
+                return '<p class="error">Invalid JSON format: "results" is not an array.</p>';
+            }
+
+            if (jsonData.results.length === 0) {
+                return '<p>No results to display.</p>';
+            }
+
+            // Validate that results have required fields
+            const firstResult = jsonData.results[0];
+            if (!firstResult.manufacturer || !firstResult.part_number) {
+                console.warn('jsonToTable: Results missing manufacturer or part_number fields. Attempting to display anyway.');
+            }
+
+            console.log('jsonToTable: Creating table with', jsonData.results.length, 'rows');
+
+            let html = '<table><thead><tr>';
+            html += '<th>Part Manufacturer</th>';
+            html += '<th>Manufacturer Part #</th>';
+            html += '<th>AI Status*</th>';
+            html += '<th>Notes by AI</th>';
+            html += '<th>AI Confidence</th>';
+            html += '</tr></thead><tbody>';
+
+            jsonData.results.forEach((result, index) => {
+                console.log(`Processing result ${index + 1}:`, result);
+                html += '<tr>';
+                html += `<td>${escapeHtml(String(result.manufacturer || 'N/A'))}</td>`;
+                html += `<td>${escapeHtml(String(result.part_number || 'N/A'))}</td>`;
+                html += `<td>${escapeHtml(String(result.ai_status || 'N/A'))}</td>`;
+                html += `<td>${escapeHtml(String(result.notes_by_ai || 'N/A'))}</td>`;
+                html += `<td>${escapeHtml(String(result.ai_confidence || 'N/A'))}</td>`;
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+            console.log('jsonToTable: Table HTML generated successfully');
+            return html;
+        }
+
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function addMessage(content, isUser, jsonData = null) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
+            
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            
+            if (isUser) {
+                bubble.textContent = content;
+            } else if (jsonData) {
+                // If JSON data is provided, render as table
+                console.log('addMessage: Rendering JSON data as table');
+                const tableHtml = jsonToTable(jsonData);
+                bubble.innerHTML = tableHtml;
+                console.log('addMessage: Table HTML set, length:', tableHtml.length);
+            } else {
+                // Fallback to markdown rendering
+                bubble.innerHTML = markdownToHtml(content);
+            }
+            
+            messageDiv.appendChild(bubble);
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            // Log after adding to DOM to verify table is rendered
+            if (jsonData) {
+                setTimeout(() => {
+                    const table = bubble.querySelector('table');
+                    if (table) {
+                        console.log('Table successfully rendered in DOM');
+                    } else {
+                        console.error('Table element not found in DOM after rendering');
+                    }
+                }, 100);
+            }
+        }
+
+        function addLoading() {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message assistant';
+            messageDiv.id = 'loadingMessage';
+            
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            bubble.innerHTML = '<div class="loading"></div> Analyzing parts lifecycle status...';
+            
+            messageDiv.appendChild(bubble);
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function removeLoading() {
+            const loadingMessage = document.getElementById('loadingMessage');
+            if (loadingMessage) {
+                loadingMessage.remove();
+            }
+        }
+
+        async function sendMessage() {
+            const message = chatInput.value.trim();
+            
+            if (!message || isLoading) return;
+            
+            // Add user message
+            addMessage(message, true);
+            chatInput.value = '';
+            
+            // Disable input
+            isLoading = true;
+            sendButton.disabled = true;
+            chatInput.disabled = true;
+            addLoading();
+            
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        session_id: sessionId
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to get response');
+                }
+                
+                removeLoading();
+                
+                // Check if we have JSON data to render
+                let jsonData = null;
+                
+                console.log('Response data:', data);
+                console.log('Response format:', data.format);
+                console.log('Has json_data:', !!data.json_data);
+                
+                if (data.format === 'json' && data.json_data) {
+                    jsonData = data.json_data;
+                    console.log('Using JSON data from response:', jsonData);
+                } else if (data.response) {
+                    // Try to parse JSON from response text
+                    console.log('Attempting to parse JSON from response text...');
+                    const responseText = data.response.trim();
+                    console.log('Response text preview:', responseText.substring(0, 200));
+                    
+                    try {
+                        // Strategy 1: Try parsing entire response as JSON
+                        try {
+                            const parsed = JSON.parse(responseText);
+                            if (parsed.results && Array.isArray(parsed.results) && parsed.results.length > 0) {
+                                // Validate that results have required fields
+                                const firstResult = parsed.results[0];
+                                if (firstResult.manufacturer && firstResult.part_number) {
+                                    jsonData = parsed;
+                                    console.log('Successfully parsed entire response as JSON');
+                                }
+                            }
+                        } catch (e) {
+                            // Strategy 2: Extract JSON from markdown code blocks
+                            const codeBlockMatch = responseText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+                            if (codeBlockMatch) {
+                                try {
+                                    const parsed = JSON.parse(codeBlockMatch[1]);
+                                    if (parsed.results && Array.isArray(parsed.results) && parsed.results.length > 0) {
+                                        const firstResult = parsed.results[0];
+                                        if (firstResult.manufacturer && firstResult.part_number) {
+                                            jsonData = parsed;
+                                            console.log('Successfully parsed JSON from code block');
+                                        }
+                                    }
+                                } catch (e2) {
+                                    console.log('Failed to parse JSON from code block:', e2);
+                                }
+                            }
+                            
+                            // Strategy 3: Find JSON object by matching braces
+                            if (!jsonData) {
+                                const startIdx = responseText.indexOf('{');
+                                if (startIdx !== -1) {
+                                    let braceCount = 0;
+                                    let endIdx = startIdx;
+                                    for (let i = startIdx; i < responseText.length; i++) {
+                                        if (responseText[i] === '{') braceCount++;
+                                        else if (responseText[i] === '}') {
+                                            braceCount--;
+                                            if (braceCount === 0) {
+                                                endIdx = i + 1;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    
+                                    if (endIdx > startIdx) {
+                                        const jsonStr = responseText.substring(startIdx, endIdx);
+                                        try {
+                                            const parsed = JSON.parse(jsonStr);
+                                            if (parsed.results && Array.isArray(parsed.results) && parsed.results.length > 0) {
+                                                const firstResult = parsed.results[0];
+                                                if (firstResult.manufacturer && firstResult.part_number) {
+                                                    jsonData = parsed;
+                                                    console.log('Successfully parsed JSON by matching braces');
+                                                }
+                                            }
+                                        } catch (e3) {
+                                            console.log('Failed to parse JSON from matched braces:', e3);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error parsing JSON:', e);
+                    }
+                }
+                
+                // Render the message
+                if (jsonData && jsonData.results && Array.isArray(jsonData.results) && jsonData.results.length > 0) {
+                    // Validate required fields exist
+                    const firstResult = jsonData.results[0];
+                    if (firstResult.manufacturer || firstResult.part_number) {
+                        console.log('Rendering table with', jsonData.results.length, 'results');
+                        addMessage('', false, jsonData);
+                    } else {
+                        console.log('JSON missing manufacturer/part_number, falling back to text rendering');
+                        addMessage(data.response || JSON.stringify(jsonData, null, 2), false);
+                    }
+                } else if (data.response) {
+                    console.log('Falling back to text rendering');
+                    // Fallback to text/markdown rendering
+                    addMessage(data.response, false);
+                } else {
+                    console.log('No response data');
+                    addMessage('No response received', false);
+                }
+                
+            } catch (error) {
+                removeLoading();
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error';
+                errorDiv.textContent = `Error: ${error.message}`;
+                chatMessages.appendChild(errorDiv);
+            } finally {
+                isLoading = false;
+                sendButton.disabled = false;
+                chatInput.disabled = false;
+                chatInput.focus();
+            }
+        }
+
+        async function clearHistory() {
+            try {
+                await fetch('/clear', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        session_id: sessionId
+                    })
+                });
+                
+                chatMessages.innerHTML = `
+                    <div class="message assistant">
+                        <div class="message-bubble">
+                                                         Ready to analyze parts lifecycle status. Please paste your parts list in the format:<br><br>
+                             Part Manufacturer	Manufacturer Part #<br><br>
+                             Example:<br>
+                             BANNER	45136<br>
+                             BANNER	75671<br>
+                             ALLEN BRADLEY	1734-232ASC<br><br>
+                                                           I'll check each part's status and return results in JSON format, displayed as a table with Part Manufacturer, Manufacturer Part #, AI Status, Notes by AI, and AI Confidence.
+                        </div>
+                    </div>
+                `;
+                
+                sessionId = 'session_' + Date.now();
+            } catch (error) {
+                alert('Failed to clear history: ' + error.message);
+            }
+        }
+
+        // Event listeners
+        sendButton.addEventListener('click', sendMessage);
+        clearButton.addEventListener('click', clearHistory);
+        
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+        
+        // Focus input on load
+        chatInput.focus();
+    </script>
+</body>
+</html> 
