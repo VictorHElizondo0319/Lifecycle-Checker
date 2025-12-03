@@ -1,18 +1,29 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Product, AnalysisResult } from '@/types';
 import { uploadExcelFile, analyzeProducts, analyzeProductsStream } from '@/lib/api';
+import Table from '@/components/Table';
+import FieldSelector, { FieldConfig } from '@/components/FieldSelector';
+import FilterBar from '@/components/FilterBar';
+import { FIELD_CONFIGS, DEFAULT_VISIBLE_FIELDS } from '@/lib/fieldConfig';
 
 export default function Home() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [results, setResults] = useState<AnalysisResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [progress, setProgress] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [visibleFields, setVisibleFields] = useState<Set<string>>(DEFAULT_VISIBLE_FIELDS);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<(() => void) | null>(null);
+
+  // Initialize filtered products when products change
+  useEffect(() => {
+    setFilteredProducts(products);
+  }, [products]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -21,12 +32,14 @@ export default function Home() {
     setLoading(true);
     setError('');
     setProducts([]);
+    setFilteredProducts([]);
     setResults([]);
 
     try {
       const response = await uploadExcelFile(file);
       if (response.success) {
         setProducts(response.products);
+        setFilteredProducts(response.products);
       } else {
         setError(response.error || 'Failed to parse Excel file');
       }
@@ -92,12 +105,34 @@ export default function Home() {
 
   const handleReset = () => {
     setProducts([]);
+    setFilteredProducts([]);
     setResults([]);
     setError('');
     setProgress('');
+    setVisibleFields(DEFAULT_VISIBLE_FIELDS);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  const handleToggleField = (fieldKey: string) => {
+    setVisibleFields((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(fieldKey)) {
+        newSet.delete(fieldKey);
+      } else {
+        newSet.add(fieldKey);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSelectAllFields = () => {
+    setVisibleFields(new Set(FIELD_CONFIGS.map((f) => f.key)));
+  };
+
+  const handleDeselectAllFields = () => {
+    setVisibleFields(new Set());
   };
 
   return (
@@ -161,10 +196,19 @@ export default function Home() {
             {/* Product List Display */}
             {products.length > 0 && results.length === 0 && (
               <div className="mb-6">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-gray-800">
-                    Products ({products.length})
-                  </h2>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <h2 className="text-lg font-semibold text-gray-800">
+                      Products ({filteredProducts.length} of {products.length})
+                    </h2>
+                    <FieldSelector
+                      fields={FIELD_CONFIGS}
+                      visibleFields={visibleFields}
+                      onToggleField={handleToggleField}
+                      onSelectAll={handleSelectAllFields}
+                      onDeselectAll={handleDeselectAllFields}
+                    />
+                  </div>
                   <button
                     onClick={handleAnalyze}
                     disabled={analyzing}
@@ -173,37 +217,22 @@ export default function Home() {
                     {analyzing ? 'Analyzing...' : 'Analyze Products'}
                   </button>
                 </div>
-                <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-200">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50 sticky top-0">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-700">
-                          No
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-700">
-                          Manufacturer
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-700">
-                          Part Number
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 bg-white">
-                      {products.map((product, index) => (
-                        <tr key={index} className="hover:bg-gray-50">
-                          <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-900">
-                            {index + 1}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-900">
-                            {product.manufacturer}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-900">
-                            {product.part_number}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+
+                <FilterBar products={products} onFilterChange={setFilteredProducts} />
+
+                <div className="max-h-96 overflow-auto">
+                  {filteredProducts.length > 0 ? (
+                    <Table
+                      products={filteredProducts}
+                      visibleFields={visibleFields}
+                      onAnalyze={handleAnalyze}
+                      analyzing={analyzing}
+                    />
+                  ) : (
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-8 text-center">
+                      <p className="text-gray-500">No products match the current filters.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -306,7 +335,7 @@ export default function Home() {
                   Upload an Excel file (.xlsx or .xls) to get started.
                 </p>
                 <p className="mt-2 text-sm text-gray-400">
-                  The file should contain columns for Manufacturer and Part Number.
+                  The file should contain all required columns matching the template structure.
                 </p>
               </div>
             )}
