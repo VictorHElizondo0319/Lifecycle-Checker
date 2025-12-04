@@ -145,8 +145,17 @@ class AIService:
         """
         lines = ["Part Manufacturer\tManufacturer Part #"]
         for product in products:
-            manufacturer = product.get('manufacturer', '')
-            part_number = product.get('part_number', '')
+            # Support multiple field name variations
+            manufacturer = (
+                product.get('part_manufacturer', '') or 
+                product.get('manufacture', '') or 
+                product.get('manufacturer', '')
+            )
+            part_number = (
+                product.get('manufacturer_part_number', '') or 
+                product.get('part_number', '') or
+                product.get('part_number_ai_modified', '')
+            )
             lines.append(f"{manufacturer}\t{part_number}")
         
         return "\n".join(lines)

@@ -1,12 +1,46 @@
 export interface Product {
+  original_order: string;
+  parent_folder: string;
+  machine_equipment_number: string;
+  equipment_number: string;
+  equipment_alias: string;
+  machine_description: string;
+  group_responsibility: string;
+  plant: string;
+  initiator: string;
+  cspl_line_number: string;
+  part_description: string;
+  part_manufacturer: string;
+  manufacturer_part_number: string;
+  qty_on_machine: string;
+  suggested_supplier: string;
+  supplier_part_number: string;
+  gore_stock_number: string;
+  is_part_likely_to_fail: string;
+  will_failures_stop_machine: string;
+  stocking_decision: string;
+  min_qty_to_stock: string;
+  part_preplacement_line_number: string;
+  notes: string;
+  part_number_ai_modified: string;
   manufacturer: string;
-  part_number: string;
+  ai_status: string;
+  notes_by_ai: string;
+  ai_confidence: string;
+  ai_confidence_confirmed: string;
+  will_notes: string;
+  nejat_notes: string;
+  kc_notes: string;
+  initial_email_communication: string;
+  follow_up_email_communication_date: string;
+  ricky_notes: string;
+  stephanie_notes: string;
+  pit_notes: string;
   row_index?: number;
-  [key: string]: any;
 }
 
 export interface AnalysisResult {
-  manufacturer: string;
+  manufacturer: string; // AI returns 'manufacturer' but we map from 'manufacture'
   part_number: string;
   ai_status: "Active" | "🔴 Obsolete" | "Review";
   notes_by_ai: string;
