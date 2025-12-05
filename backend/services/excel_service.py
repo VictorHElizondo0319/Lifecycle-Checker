@@ -4,6 +4,7 @@ Excel Service - Handles Excel file parsing and product list extraction
 import pandas as pd
 from typing import List, Dict, Any
 import io
+import re
 
 
 def parse_excel_file(file_content: bytes, filename: str) -> List[Dict[str, Any]]:
@@ -37,7 +38,7 @@ def parse_excel_file(file_content: bytes, filename: str) -> List[Dict[str, Any]]
         
         # Normalize column names (strip whitespace)
         df.columns = df.columns.str.strip()
-        
+        print(df.columns.tolist())
         # Integer fields that should not show .0
         integer_fields = {
             'Original Order': 'original_order',
@@ -47,6 +48,32 @@ def parse_excel_file(file_content: bytes, filename: str) -> List[Dict[str, Any]]
             'Qty.on Machine': 'qty_on_machine',
             'Gore Stock Number': 'gore_stock_number',
         }
+        
+        # Helper function to normalize whitespace in strings (collapse multiple spaces to single)
+        def normalize_whitespace(text):
+            """Normalize whitespace by collapsing multiple spaces to single space"""
+            return re.sub(r'\s+', ' ', str(text).strip())
+        
+        # Helper function to find column name with flexible matching
+        def find_column(column_name):
+            """Find column in dataframe with flexible matching (handles whitespace variations)"""
+            # First try exact match
+            if column_name in df.columns:
+                return column_name
+            
+            # Try with normalized whitespace
+            normalized_search = normalize_whitespace(column_name)
+            for col in df.columns:
+                if normalize_whitespace(col) == normalized_search:
+                    return col
+            
+            # Try case-insensitive match with normalized whitespace
+            normalized_search_lower = normalized_search.lower()
+            for col in df.columns:
+                if normalize_whitespace(col).lower() == normalized_search_lower:
+                    return col
+            
+            return None
         
         # Helper function to format integer values (remove .0)
         def format_integer_value(val):
@@ -64,8 +91,10 @@ def parse_excel_file(file_content: bytes, filename: str) -> List[Dict[str, Any]]
         
         # Helper function to get value from row with fallback
         def get_value(row, col_name, default="", is_integer=False):
-            if col_name in df.columns and pd.notna(row[col_name]):
-                val = row[col_name]
+            # Try to find the column with flexible matching
+            actual_col_name = find_column(col_name)
+            if actual_col_name and actual_col_name in df.columns and pd.notna(row[actual_col_name]):
+                val = row[actual_col_name]
                 # For integer fields, format the value
                 if is_integer:
                     val = format_integer_value(val)
@@ -89,7 +118,7 @@ def parse_excel_file(file_content: bytes, filename: str) -> List[Dict[str, Any]]
                 'cspl_line_number': get_value(row, 'CSPL Line Number', is_integer=True),
                 'part_description': get_value(row, 'Part Description'),
                 'part_manufacturer': get_value(row, 'Part Manufacturer'),
-                'manufacturer_part_number': get_value(row, 'Manufacturer Part # or Gore Part# or MD Drawing#'),
+                'manufacturer_part_number': get_value(row, 'Manufacturer Part # or Gore Part # or MD Drawing #'),
                 'qty_on_machine': get_value(row, 'Qty.on Machine', is_integer=True),
                 'suggested_supplier': get_value(row, 'Suggested Supplier (when applicable)'),
                 'supplier_part_number': get_value(row, 'Supplier PartNumber (when applicable)'),
