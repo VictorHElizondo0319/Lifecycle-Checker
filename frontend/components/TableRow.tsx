@@ -8,8 +8,39 @@ interface TableRowProps {
   visibleFields: Set<string>;
 }
 
+// Integer fields that should not show .0
+const INTEGER_FIELDS = new Set([
+  'original_order',
+  'machine_equipment_number',
+  'equipment_number',
+  'equipment_alias',
+  'cspl_line_number',
+  'qty_on_machine',
+  'gore_stock_number',
+]);
+
+// Helper function to format integer values (remove .0)
+const formatIntegerValue = (value: string): string => {
+  if (!value || value === '' || value === '-') return value;
+  try {
+    const num = parseFloat(value);
+    if (!isNaN(num) && num % 1 === 0) {
+      return Math.floor(num).toString();
+    }
+  } catch {
+    // If parsing fails, return original value
+  }
+  return value;
+};
+
 const renderFieldValue = (product: Product, fieldKey: string) => {
-  const value = product[fieldKey as keyof Product] as string | undefined;
+  let value = product[fieldKey as keyof Product] as string | undefined;
+  
+  // Format integer fields to remove .0
+  if (value && INTEGER_FIELDS.has(fieldKey)) {
+    value = formatIntegerValue(value);
+  }
+  
   const displayValue = value && value !== '' ? value : '-';
 
   // Special formatting for certain fields

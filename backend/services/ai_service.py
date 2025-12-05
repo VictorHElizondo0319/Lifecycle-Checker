@@ -36,18 +36,22 @@ class AIService:
             product_list_text = self._format_products_for_analysis(products)
             
             # Use Responses API with web search tool enabled
-            resp = self.client.responses.create(
-                model="gpt-4.1",  # or "gpt-4.1-mini"
-                instructions=self.system_prompt,
-                input=product_list_text,
-                tools=[{"type": "web_search"}],
-                conversation=conversation_id,
-                max_output_tokens=2500,
-                temperature=0.2,
-            )
+            create_params = {
+                "model": "gpt-4.1",  # or "gpt-4.1-mini"
+                "instructions": self.system_prompt,
+                "input": product_list_text,
+                "tools": [{"type": "web_search"}],
+                "max_output_tokens": 2500,
+                "temperature": 0.2,
+            }
+            # Add previous_response_id if available for conversation continuity
+            if conversation_id:
+                create_params["previous_response_id"] = conversation_id
             
-            # Extract conversation ID if available
-            new_conversation_id = getattr(resp, "conversation_id", None)
+            resp = self.client.responses.create(**create_params)
+            
+            # Extract response ID for next call (for conversation continuity)
+            new_response_id = getattr(resp, "id", None)
             
             # Get the response text
             response_text = resp.output_text.strip()
@@ -57,7 +61,7 @@ class AIService:
             
             return {
                 'success': True,
-                'conversation_id': new_conversation_id or conversation_id,
+                'conversation_id': new_response_id or conversation_id,  # Store response ID for next chunk
                 'response_text': response_text,
                 'parsed_json': parsed_json,
                 'products_analyzed': len(products)
@@ -89,17 +93,22 @@ class AIService:
             # For now, we'll use the Responses API and yield the complete result
             # In a real implementation, you might want to use chat completions with streaming
             
-            resp = self.client.responses.create(
-                model="gpt-4.1",
-                instructions=self.system_prompt,
-                input=product_list_text,
-                tools=[{"type": "web_search"}],
-                conversation=conversation_id,
-                max_output_tokens=2500,
-                temperature=0.2,
-            )
+            create_params = {
+                "model": "gpt-4.1",
+                "instructions": self.system_prompt,
+                "input": product_list_text,
+                "tools": [{"type": "web_search"}],
+                "max_output_tokens": 2500,
+                "temperature": 0.2,
+            }
+            # Add previous_response_id if available for conversation continuity
+            if conversation_id:
+                create_params["previous_response_id"] = conversation_id
             
-            new_conversation_id = getattr(resp, "conversation_id", None)
+            resp = self.client.responses.create(**create_params)
+            
+            # Extract response ID for next call (for conversation continuity)
+            new_response_id = getattr(resp, "id", None)
             response_text = resp.output_text.strip()
             
             # Parse JSON from response
@@ -115,7 +124,7 @@ class AIService:
             if parsed_json:
                 yield json.dumps({
                     'type': 'result',
-                    'conversation_id': new_conversation_id or conversation_id,
+                    'conversation_id': new_response_id or conversation_id,  # Store response ID for next chunk
                     'data': parsed_json,
                     'products_analyzed': len(products)
                 })
