@@ -64,7 +64,7 @@ def analyze_products():
         
         if not isinstance(products, list):
             return jsonify({"error": "Products must be a list"}), 400
-        
+        print(stream)
         # If streaming requested, use streaming endpoint
         if stream:
             return Response(

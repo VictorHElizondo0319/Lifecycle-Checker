@@ -38,33 +38,62 @@ def parse_excel_file(file_content: bytes, filename: str) -> List[Dict[str, Any]]
         # Normalize column names (strip whitespace)
         df.columns = df.columns.str.strip()
         
+        # Integer fields that should not show .0
+        integer_fields = {
+            'Original Order': 'original_order',
+            'Machine Equipment Number': 'machine_equipment_number',
+            'Equipment Alias': 'equipment_alias',
+            'CSPL Line Number': 'cspl_line_number',
+            'Qty.on Machine': 'qty_on_machine',
+            'Gore Stock Number': 'gore_stock_number',
+        }
+        
+        # Helper function to format integer values (remove .0)
+        def format_integer_value(val):
+            """Convert float values like 30.0 to integer strings like '30'"""
+            try:
+                # Try to convert to float first
+                float_val = float(val)
+                # If it's a whole number, return as integer string
+                if float_val.is_integer():
+                    return str(int(float_val))
+                return str(float_val)
+            except (ValueError, TypeError):
+                # If conversion fails, return original value
+                return str(val)
+        
         # Helper function to get value from row with fallback
-        def get_value(row, col_name, default=""):
+        def get_value(row, col_name, default="", is_integer=False):
             if col_name in df.columns and pd.notna(row[col_name]):
-                val = str(row[col_name]).strip()
+                val = row[col_name]
+                # For integer fields, format the value
+                if is_integer:
+                    val = format_integer_value(val)
+                else:
+                    val = str(val).strip()
                 return val if val != 'nan' else default
             return default
         
         # Extract products - map all columns from the Excel file
         for index, row in df.iterrows():
             product = {
-                'original_order': get_value(row, 'Original Order'),
+                'original_order': get_value(row, 'Original Order', is_integer=True),
                 'parent_folder': get_value(row, 'Parent Folder'),
-                'machine_equipment_number': get_value(row, 'Machine Equipment Number'),
-                'equipment_number': get_value(row, 'Equipment Number', get_value(row, 'Machine Equipment Number')),  # Fallback to Machine Equipment Number
-                'equipment_alias': get_value(row, 'Equipment Alias'),
+                'machine_equipment_number': get_value(row, 'Machine Equipment Number', is_integer=True),
+                'equipment_number': get_value(row, 'Equipment Number', get_value(row, 'Machine Equipment Number', is_integer=True), is_integer=True),  # Fallback to Machine Equipment Number
+                'equipment_alias': get_value(row, 'Equipment Alias', is_integer=True),
                 'machine_description': get_value(row, 'Machine Description'),
                 'group_responsibility': get_value(row, 'Group Responsibility'),
                 'plant': get_value(row, 'Plant'),
                 'initiator': get_value(row, 'Initiator'),
-                'cspl_line_number': get_value(row, 'CSPL Line Number'),
+                'cspl_line_number': get_value(row, 'CSPL Line Number', is_integer=True),
                 'part_description': get_value(row, 'Part Description'),
                 'part_manufacturer': get_value(row, 'Part Manufacturer'),
                 'manufacturer_part_number': get_value(row, 'Manufacturer Part # or Gore Part# or MD Drawing#'),
-                'qty_on_machine': get_value(row, 'Qty.on Machine'),
+                'qty_on_machine': get_value(row, 'Qty.on Machine', is_integer=True),
                 'suggested_supplier': get_value(row, 'Suggested Supplier (when applicable)'),
                 'supplier_part_number': get_value(row, 'Supplier PartNumber (when applicable)'),
-                'gore_stock_number': get_value(row, 'Gore Stock Number'),
+                'gore_stock_number': get_value(row, 'Gore Stock Number', is_integer=True),
                 'is_part_likely_to_fail': get_value(row, 'Is Part likely to fail?'),
                 'will_failures_stop_machine': get_value(row, 'Will Failures stop machine from supporting production'),
                 'stocking_decision': get_value(row, 'Stocking Decision'),
