@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Product, AnalysisResult } from '@/types';
 import { uploadExcelFile, analyzeProducts, analyzeProductsStream } from '@/lib/api';
 import Table from '@/components/Table';
@@ -19,6 +19,64 @@ export default function Home() {
   const [visibleFields, setVisibleFields] = useState<Set<string>>(DEFAULT_VISIBLE_FIELDS);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<(() => void) | null>(null);
+
+  const normalize = useCallback((value?: string) => value?.trim().toUpperCase() || '', []);
+
+  const mergeResultList = useCallback(
+    (existing: AnalysisResult[], incoming: AnalysisResult[]) => {
+      const merged = new Map<string, AnalysisResult>();
+      existing.forEach((item) => {
+        const key = `${normalize(item.manufacturer)}|${normalize(item.part_number)}`;
+        merged.set(key, item);
+      });
+      incoming.forEach((item) => {
+        const key = `${normalize(item.manufacturer)}|${normalize(item.part_number)}`;
+        merged.set(key, item);
+      });
+      return Array.from(merged.values());
+    },
+    [normalize]
+  );
+
+  const mergeResultsIntoProducts = useCallback(
+    (current: Product[], incoming: AnalysisResult[]) =>
+      current.map((product) => {
+        const productManufacturers = [
+          normalize(product.manufacturer),
+          normalize(product.part_manufacturer),
+        ].filter(Boolean);
+        const productPartNumbers = [
+          normalize(product.manufacturer_part_number),
+          normalize(product.part_number_ai_modified),
+        ].filter(Boolean);
+
+        const match = incoming.find((result) => {
+          const resultManufacturer = normalize(result.manufacturer);
+          const resultPartNumber = normalize(result.part_number);
+
+          const manufacturerMatches =
+            resultManufacturer &&
+            productManufacturers.some((value) => value === resultManufacturer);
+          const partMatches =
+            resultPartNumber && productPartNumbers.some((value) => value === resultPartNumber);
+
+          return manufacturerMatches && partMatches;
+        });
+
+        if (!match) return product;
+
+        return {
+          ...product,
+          // Preserve the original data while enriching AI-specific fields
+          ai_status: match.ai_status,
+          notes_by_ai: match.notes_by_ai,
+          ai_confidence: match.ai_confidence,
+          // Fill missing manufacturer if AI supplied it
+          manufacturer: product.manufacturer || match.manufacturer,
+        };
+      }),
+    [normalize]
+  );
 
   // Initialize filtered products when products change
   useEffect(() => {
@@ -73,12 +131,16 @@ export default function Home() {
           } else if (event.type === 'chunk_complete') {
             setProgress(`Completed chunk ${event.chunk}/${event.total_chunks}`);
           } else if (event.type === 'result' && event.data?.results) {
-            setResults((prev) => [...prev, ...event.data.results]);
+            setResults((prev) => mergeResultList(prev, event.data.results));
+            setProducts((prev) => mergeResultsIntoProducts(prev, event.data.results));
           } else if (event.type === 'complete' && event.results) {
-            setResults(event.results);
+            setResults((prev) => mergeResultList(prev, event.results));
+            setProducts((prev) => mergeResultsIntoProducts(prev, event.results));
             setProgress(`Analysis complete! Analyzed ${event.total_analyzed} products.`);
+            setAnalyzing(false);
           } else if (event.type === 'error') {
             setError(event.message || 'Analysis error occurred');
+            setAnalyzing(false);
           }
         },
         (err) => {
