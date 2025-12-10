@@ -1,3 +1,4 @@
+import { FieldConfig } from '@/components/FieldSelector';
 import { Product, AnalysisResult, ExcelUploadResponse, AnalyzeResponse } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
@@ -109,3 +110,43 @@ export function analyzeProductsStream(
   };
 }
 
+export async function exportExcelFile({cols, products}: {cols: FieldConfig[], products: any[]}): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/excel/export`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      cols,
+      products,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to export Excel file' }));
+    throw new Error(error.error || 'Failed to export Excel file');
+  }
+
+  // Get the filename from Content-Disposition header or use default
+  const contentDisposition = response.headers.get('Content-Disposition');
+  let filename = 'export.xlsx';
+  if (contentDisposition) {
+    const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+    if (filenameMatch && filenameMatch[1]) {
+      filename = filenameMatch[1].replace(/['"]/g, '');
+    }
+  }
+
+  // Convert response to blob and trigger download
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  
+  // Cleanup
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}

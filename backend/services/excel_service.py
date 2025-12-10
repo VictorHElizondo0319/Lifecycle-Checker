@@ -199,7 +199,8 @@ def extract_products_from_row_18(file_content: bytes, filename: str) -> List[Dic
                 for field_map in PRODUCT_FIELD_MAPPINGS
             }
             product['row_index'] = index + 18  # Actual row number in Excel (1-based)
-            
+            product['original_order'] = product['line']
+            product["cspl_line_number"] = product['line']
             # Skip completely empty rows (no manufacturer or part number)
             if not product['part_manufacturer'] and not product['manufacturer_part_number']:
                 continue
@@ -248,6 +249,52 @@ def parse_excel_file_complete(file_content: bytes, filename: str) -> Dict[str, A
         }
     except Exception as e:
         raise Exception(f"Error parsing Excel file: {str(e)}")
+
+
+def export_products_to_excel(products: List[Dict[str, Any]], columns: List[str]) -> bytes:
+    """
+    Export products to Excel file with specified columns
+    
+    Args:
+        products: List of product dictionaries
+        columns: List of column keys to include in the export
+        
+    Returns:
+        Bytes content of the Excel file
+    """
+    try:
+        if not products:
+            raise Exception("No products to export")
+        
+        if not columns:
+            raise Exception("No columns specified for export")
+        print(columns)
+        # Create DataFrame with only specified columns
+        export_data = []
+        for product in products:
+            row = {}
+            for col in columns:
+                key = col["key"]
+                # Get value from product, default to empty string
+                value = product.get(key, '')
+                # Convert None to empty string
+                if value is None:
+                    value = ''
+                row[col["label"]] = value
+            export_data.append(row)
+        
+        df = pd.DataFrame(export_data)
+        
+        # Create Excel file in memory
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Products')
+        
+        output.seek(0)
+        return output.getvalue()
+        
+    except Exception as e:
+        raise Exception(f"Error exporting to Excel: {str(e)}")
 
 
 def split_products_into_chunks(products: List[Dict[str, Any]], chunk_size: int = 30) -> List[List[Dict[str, Any]]]:
