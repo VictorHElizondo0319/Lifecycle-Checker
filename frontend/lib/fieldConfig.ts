@@ -5,7 +5,6 @@ export const FIELD_CONFIGS: FieldConfig[] = [
   { key: 'original_order', label: 'Original Order', category: 'Basic Information' },
   { key: 'parent_folder', label: 'Parent Folder', category: 'Basic Information' },
   { key: 'machine_equipment_number', label: 'Machine Equipment Number', category: 'Basic Information' },
-  { key: 'equipment_number', label: 'Equipment Number', category: 'Basic Information' },
   { key: 'equipment_alias', label: 'Equipment Alias', category: 'Basic Information' },
   { key: 'machine_description', label: 'Machine Description', category: 'Basic Information' },
   { key: 'group_responsibility', label: 'Group Responsibility', category: 'Basic Information' },
@@ -54,9 +53,8 @@ export const FIELD_CONFIGS: FieldConfig[] = [
 ];
 
 // Default visible fields (most commonly used)
-export const DEFAULT_VISIBLE_FIELDS = new Set([
-  'machine_equipment_number',
-  'equipment_alias',
+export const CRITICAL_DEFAULT_VISIBLE_FIELDS = new Set([
+  'original_order',
   'part_description',
   'part_manufacturer',
   'manufacturer_part_number',
