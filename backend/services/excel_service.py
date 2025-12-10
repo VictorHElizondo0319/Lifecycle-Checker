@@ -174,27 +174,34 @@ def extract_products_from_row_18(file_content: bytes, filename: str) -> List[Dic
             return default
         
         # Extract products starting from row 18 (now index 0 after header=16)
+
+                # Define product column mappings for scalability and flexibility
+        PRODUCT_FIELD_MAPPINGS = [
+            {"field": "line", "col": "Line", "is_integer": True},
+            {"field": "part_description", "col": "Description"},
+            {"field": "part_manufacturer", "col": "Manufacturer"},
+            {"field": "manufacturer_part_number", "col": "Manufacturer Part # or Gore Part # or MD Drawing #"},
+            {"field": "qty_on_machine", "col": "Qty. on Machine", "is_integer": True},
+            {"field": "suggested_supplier", "col": "Suggested Supplier (when applicable)"},
+            {"field": "supplier_part_number", "col": "Supplier Part Number (when applicable)"},
+            {"field": "gore_stock_number", "col": "Gore Stock number (ERP#) (when applicable)", "is_integer": True},
+            {"field": "is_part_likely_to_fail", "col": "Is Part likely to fail during the life of the machine?"},
+            {"field": "will_failure_stop_machine", "col": "Will Part Failure stop the machine from supporting production?"},
+            {"field": "stocking_decision", "col": "Stocking Decision"},
+            {"field": "min_qty_to_stock", "col": "Min Qty to Stock for this Machine", "is_integer": True},
+            {"field": "part_replacement_line_number", "col": "Part Replacement Line # (Refer to 6.3.4 in MD205158)"},
+            {"field": "notes", "col": "Notes (Refer to 6.1.4.4 of MD205158)"}
+        ]
+
         for index, row in df.iterrows():
             product = {
-                'line': get_value(row, 'Line', is_integer=True),
-                'description': get_value(row, 'Description'),
-                'manufacturer': get_value(row, 'Manufacturer'),
-                'manufacturer_part_number': get_value(row, 'Manufacturer Part # or Gore Part # or MD Drawing #'),
-                'qty_on_machine': get_value(row, 'Qty. on Machine', is_integer=True),
-                'suggested_supplier': get_value(row, 'Suggested Supplier (when applicable)'),
-                'supplier_part_number': get_value(row, 'Supplier Part Number (when applicable)'),
-                'gore_stock_number': get_value(row, 'Gore Stock number (ERP#) (when applicable)', is_integer=True),
-                'is_part_likely_to_fail': get_value(row, 'Is Part likely to fail during the life of the machine?'),
-                'will_failure_stop_machine': get_value(row, 'Will Part Failure stop the machine from supporting production?'),
-                'stocking_decision': get_value(row, 'Stocking Decision'),
-                'min_qty_to_stock': get_value(row, 'Min Qty to Stock for this Machine', is_integer=True),
-                'part_replacement_line_number': get_value(row, 'Part Replacement Line # (Refer to 6.3.4 in MD205158)'),
-                'notes': get_value(row, 'Notes (Refer to 6.1.4.4 of MD205158)'),
-                'row_index': index + 18  # Actual row number in Excel (1-based)
+                field_map["field"]: get_value(row, field_map["col"], is_integer=field_map.get("is_integer", False))
+                for field_map in PRODUCT_FIELD_MAPPINGS
             }
+            product['row_index'] = index + 18  # Actual row number in Excel (1-based)
             
             # Skip completely empty rows (no manufacturer or part number)
-            if not product['manufacturer'] and not product['manufacturer_part_number']:
+            if not product['part_manufacturer'] and not product['manufacturer_part_number']:
                 continue
             
             products.append(product)
