@@ -47,10 +47,35 @@ export interface AnalysisResult {
   ai_confidence: "High" | "Medium" | "Low";
 }
 
+export interface ParticipatingAssociate {
+  name: string;
+  id: string;
+}
+
+export interface GeneralInfo {
+  document_no?: string;
+  revision_no?: string;
+  title?: string;
+  equipment_description?: string;
+  eam_equipment_id?: string;
+  alias?: string;
+  plant?: string;
+  group_responsible?: string;
+  participating_associates?: {
+    initiator?: ParticipatingAssociate;
+    pe?: ParticipatingAssociate;
+    d_and_a?: ParticipatingAssociate;
+    maintenance_tech?: ParticipatingAssociate;
+    indirect_procurement?: ParticipatingAssociate;
+  };
+}
+
 export interface ExcelUploadResponse {
   success: boolean;
   products: Product[];
-  total: number;
+  total?: number;
+  total_products?: number;
+  general_info?: GeneralInfo;
   error?: string;
 }
 

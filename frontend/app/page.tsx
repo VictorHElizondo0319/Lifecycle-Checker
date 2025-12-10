@@ -6,12 +6,15 @@ import { uploadExcelFile, analyzeProducts, analyzeProductsStream } from '@/lib/a
 import Table from '@/components/Table';
 import FieldSelector, { FieldConfig } from '@/components/FieldSelector';
 import FilterBar from '@/components/FilterBar';
+import GeneralInfo from '@/components/GeneralInfo';
 import { FIELD_CONFIGS, DEFAULT_VISIBLE_FIELDS } from '@/lib/fieldConfig';
+import { GeneralInfo as GeneralInfoType } from '@/types';
 
 export default function Home() {
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [results, setResults] = useState<AnalysisResult[]>([]);
+  const [generalInfo, setGeneralInfo] = useState<GeneralInfoType | null>(null);
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [progress, setProgress] = useState<string>('');
@@ -92,12 +95,16 @@ export default function Home() {
     setProducts([]);
     setFilteredProducts([]);
     setResults([]);
+    setGeneralInfo(null);
 
     try {
       const response = await uploadExcelFile(file);
       if (response.success) {
         setProducts(response.products);
         setFilteredProducts(response.products);
+        if (response.general_info) {
+          setGeneralInfo(response.general_info);
+        }
       } else {
         setError(response.error || 'Failed to parse Excel file');
       }
@@ -169,6 +176,7 @@ export default function Home() {
     setProducts([]);
     setFilteredProducts([]);
     setResults([]);
+    setGeneralInfo(null);
     setError('');
     setProgress('');
     setVisibleFields(DEFAULT_VISIBLE_FIELDS);
@@ -255,6 +263,9 @@ export default function Home() {
               </div>
             )}
 
+            {/* General Information Display */}
+            {generalInfo && <GeneralInfo generalInfo={generalInfo} />}
+
             {/* Product List Display */}
             {products.length > 0 && results.length === 0 && (
               <div className="mb-6">
@@ -282,7 +293,7 @@ export default function Home() {
 
                 <FilterBar products={products} onFilterChange={setFilteredProducts} />
 
-                <div className="max-h-96 overflow-auto">
+                <div>
                   {filteredProducts.length > 0 ? (
                     <Table
                       products={filteredProducts}

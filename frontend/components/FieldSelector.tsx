@@ -75,10 +75,10 @@ export default function FieldSelector({
       {isOpen && (
         <>
           <div
-            className="fixed inset-0 z-10"
+            className="fixed inset-0 z-30"
             onClick={() => setIsOpen(false)}
           />
-          <div className="absolute right-0 top-full z-20 mt-2 w-80 rounded-lg border border-gray-200 bg-white shadow-lg">
+          <div className="absolute right-0 top-full z-40 mt-2 w-80 rounded-lg border border-gray-200 bg-white shadow-lg">
             <div className="p-4">
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-gray-900">Select Fields</h3>

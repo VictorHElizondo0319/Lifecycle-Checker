@@ -24,3 +24,27 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Force horizontal scrollbar to always be visible */
+.overflow-x-scroll {
+  overflow-x: scroll !important;
+  scrollbar-width: thin; /* For Firefox */
+}
+
+.overflow-x-scroll::-webkit-scrollbar {
+  height: 12px; /* Height of horizontal scrollbar */
+}
+
+.overflow-x-scroll::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 6px;
+}
+
+.overflow-x-scroll::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 6px;
+}
+
+.overflow-x-scroll::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}

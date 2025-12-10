@@ -17,14 +17,21 @@ export default function Table({ products, visibleFields, onAnalyze, analyzing }:
 
   return (
     <div className="w-full">
-      <div className="overflow-x-auto rounded-lg border border-gray-200">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50 sticky top-0 z-10">
+      <div 
+        className="overflow-x-scroll overflow-y-auto rounded-lg border border-gray-200" 
+        style={{ 
+          maxHeight: '384px',
+          overflowX: 'scroll',
+          overflowY: 'auto'
+        }}
+      >
+        <table className="min-w-full divide-y divide-gray-200" style={{ minWidth: 'max-content' }}>
+          <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
             <tr>
               {visibleFieldConfigs.map((field) => (
                 <th
                   key={field.key}
-                  className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-700 whitespace-nowrap"
+                  className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-700 whitespace-nowrap bg-gray-50"
                 >
                   {field.label}
                 </th>
