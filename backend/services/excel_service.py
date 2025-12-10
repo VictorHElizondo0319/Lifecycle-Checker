@@ -7,9 +7,103 @@ import io
 import re
 
 
-def parse_excel_file(file_content: bytes, filename: str) -> List[Dict[str, Any]]:
+def extract_general_information(file_content: bytes, filename: str) -> Dict[str, Any]:
     """
-    Parse Excel file and return product list
+    Extract general information from the Excel file
+    
+    Args:
+        file_content: Binary content of the Excel file
+        filename: Original filename
+        
+    Returns:
+        Dictionary containing general information
+    """
+    try:
+        # Read Excel file from bytes
+        excel_file = io.BytesIO(file_content)
+        
+        # Try to read the Excel file
+        if filename.endswith('.xlsx'):
+            df = pd.read_excel(excel_file, engine='openpyxl', header=None)
+        elif filename.endswith('.xls'):
+            df = pd.read_excel(excel_file, engine='xlrd', header=None)
+        else:
+            df = pd.read_excel(excel_file, engine='openpyxl', header=None)
+        
+        # Helper function to safely get cell value
+        def get_cell_value(row_idx, col_idx, default=""):
+            try:
+                val = df.iloc[row_idx, col_idx]
+                if pd.isna(val):
+                    return default
+                return str(val).strip()
+            except (IndexError, KeyError):
+                return default
+        
+        # Extract document information (rows 2-4)
+        document_no = get_cell_value(2, 0)  # Row 3 (0-indexed: 2)
+        revision_no = get_cell_value(2, 1) if len(df.columns) > 1 else ""
+        title = get_cell_value(3, 0)  # Row 4
+        
+        # Extract general information (row 6, 0-indexed: 5)
+        equipment_description = get_cell_value(7, 1)
+        eam_equipment_id = get_cell_value(7, 3)
+        alias = get_cell_value(7, 5)
+        plant = get_cell_value(7, 7)
+        group_responsible = get_cell_value(7, 9)
+        
+        # Extract participating associates (around row 7-8)
+        # Try to find "Initiator" or "Role" row
+        initiator_name = get_cell_value(7, 11)
+        initiator_id = get_cell_value(7, 12)
+        pe_name = get_cell_value(8, 11)
+        pe_id = get_cell_value(8, 12)
+        d_and_a_name = get_cell_value(9, 11)
+        d_and_a_id = get_cell_value(9, 12)
+        maintenance_tech_name = get_cell_value(10, 11)
+        maintenance_tech_id = get_cell_value(10, 12)
+        indirect_procurement_name = get_cell_value(11, 11)
+        indirect_procurement_id = get_cell_value(11, 12)
+        
+        return {
+            'document_no': document_no,
+            'revision_no': revision_no,
+            'title': title,
+            'equipment_description': equipment_description,
+            'eam_equipment_id': eam_equipment_id,
+            'alias': alias,
+            'plant': plant,
+            'group_responsible': group_responsible,
+            'participating_associates': {
+                'initiator': {
+                    'name': initiator_name,
+                    'id': initiator_id
+                },
+                'pe': {
+                    'name': pe_name,
+                    'id': pe_id
+                },
+                'd_and_a': {
+                    'name': d_and_a_name,
+                    'id': d_and_a_id
+                },
+                'maintenance_tech': {
+                    'name': maintenance_tech_name,
+                    'id': maintenance_tech_id
+                },
+                'indirect_procurement': {
+                    'name': indirect_procurement_name,
+                    'id': indirect_procurement_id
+                }
+            }
+        }
+    except Exception as e:
+        raise Exception(f"Error extracting general information: {str(e)}")
+
+
+def extract_products_from_row_18(file_content: bytes, filename: str) -> List[Dict[str, Any]]:
+    """
+    Extract products list starting from row 18
     
     Args:
         file_content: Binary content of the Excel file
@@ -17,57 +111,39 @@ def parse_excel_file(file_content: bytes, filename: str) -> List[Dict[str, Any]]
         
     Returns:
         List of dictionaries containing product information
-        Each dict should have at least 'manufacturer' and 'part_number' keys
     """
     try:
         # Read Excel file from bytes
         excel_file = io.BytesIO(file_content)
         
-        # Try to read the Excel file
-        # Support both .xlsx and .xls formats
+        # Read with header starting from row 17 (0-indexed: 16) to get column names
+        # Then data starts from row 18 (0-indexed: 17)
         if filename.endswith('.xlsx'):
-            df = pd.read_excel(excel_file, engine='openpyxl')
+            df = pd.read_excel(excel_file, engine='openpyxl', header=16)  # Row 17 is header
         elif filename.endswith('.xls'):
-            df = pd.read_excel(excel_file, engine='xlrd')
+            df = pd.read_excel(excel_file, engine='xlrd', header=16)
         else:
-            # Default to openpyxl
-            df = pd.read_excel(excel_file, engine='openpyxl')
-        
-        # Convert DataFrame to list of dictionaries
-        products = []
+            df = pd.read_excel(excel_file, engine='openpyxl', header=16)
         
         # Normalize column names (strip whitespace)
         df.columns = df.columns.str.strip()
-        print(df.columns.tolist())
-        # Integer fields that should not show .0
-        integer_fields = {
-            'Original Order': 'original_order',
-            'Machine Equipment Number': 'machine_equipment_number',
-            'Equipment Alias': 'equipment_alias',
-            'CSPL Line Number': 'cspl_line_number',
-            'Qty.on Machine': 'qty_on_machine',
-            'Gore Stock Number': 'gore_stock_number',
-        }
         
-        # Helper function to normalize whitespace in strings (collapse multiple spaces to single)
+        products = []
+        
+        # Helper function to normalize whitespace in strings
         def normalize_whitespace(text):
-            """Normalize whitespace by collapsing multiple spaces to single space"""
             return re.sub(r'\s+', ' ', str(text).strip())
         
         # Helper function to find column name with flexible matching
         def find_column(column_name):
-            """Find column in dataframe with flexible matching (handles whitespace variations)"""
-            # First try exact match
             if column_name in df.columns:
                 return column_name
             
-            # Try with normalized whitespace
             normalized_search = normalize_whitespace(column_name)
             for col in df.columns:
                 if normalize_whitespace(col) == normalized_search:
                     return col
             
-            # Try case-insensitive match with normalized whitespace
             normalized_search_lower = normalized_search.lower()
             for col in df.columns:
                 if normalize_whitespace(col).lower() == normalized_search_lower:
@@ -77,25 +153,19 @@ def parse_excel_file(file_content: bytes, filename: str) -> List[Dict[str, Any]]
         
         # Helper function to format integer values (remove .0)
         def format_integer_value(val):
-            """Convert float values like 30.0 to integer strings like '30'"""
             try:
-                # Try to convert to float first
                 float_val = float(val)
-                # If it's a whole number, return as integer string
                 if float_val.is_integer():
                     return str(int(float_val))
                 return str(float_val)
             except (ValueError, TypeError):
-                # If conversion fails, return original value
                 return str(val)
         
         # Helper function to get value from row with fallback
         def get_value(row, col_name, default="", is_integer=False):
-            # Try to find the column with flexible matching
             actual_col_name = find_column(col_name)
             if actual_col_name and actual_col_name in df.columns and pd.notna(row[actual_col_name]):
                 val = row[actual_col_name]
-                # For integer fields, format the value
                 if is_integer:
                     val = format_integer_value(val)
                 else:
@@ -103,57 +173,72 @@ def parse_excel_file(file_content: bytes, filename: str) -> List[Dict[str, Any]]
                 return val if val != 'nan' else default
             return default
         
-        # Extract products - map all columns from the Excel file
+        # Extract products starting from row 18 (now index 0 after header=16)
         for index, row in df.iterrows():
             product = {
-                'original_order': get_value(row, 'Original Order', is_integer=True),
-                'parent_folder': get_value(row, 'Parent Folder'),
-                'machine_equipment_number': get_value(row, 'Machine Equipment Number', is_integer=True),
-                'equipment_number': get_value(row, 'Equipment Number', get_value(row, 'Machine Equipment Number', is_integer=True), is_integer=True),  # Fallback to Machine Equipment Number
-                'equipment_alias': get_value(row, 'Equipment Alias', is_integer=True),
-                'machine_description': get_value(row, 'Machine Description'),
-                'group_responsibility': get_value(row, 'Group Responsibility'),
-                'plant': get_value(row, 'Plant'),
-                'initiator': get_value(row, 'Initiator'),
-                'cspl_line_number': get_value(row, 'CSPL Line Number', is_integer=True),
-                'part_description': get_value(row, 'Part Description'),
-                'part_manufacturer': get_value(row, 'Part Manufacturer'),
-                'manufacturer_part_number': get_value(row, 'Manufacturer Part # or Gore Part # or MD Drawing #'),
-                'qty_on_machine': get_value(row, 'Qty.on Machine', is_integer=True),
-                'suggested_supplier': get_value(row, 'Suggested Supplier (when applicable)'),
-                'supplier_part_number': get_value(row, 'Supplier PartNumber (when applicable)'),
-                'gore_stock_number': get_value(row, 'Gore Stock Number', is_integer=True),
-                'is_part_likely_to_fail': get_value(row, 'Is Part likely to fail?'),
-                'will_failures_stop_machine': get_value(row, 'Will Failures stop machine from supporting production'),
-                'stocking_decision': get_value(row, 'Stocking Decision'),
-                'min_qty_to_stock': get_value(row, 'Min Qty to Stock for this Machine'),
-                'part_preplacement_line_number': get_value(row, 'Part Preplacement Line #'),
-                'notes': get_value(row, 'Notes'),
-                'part_number_ai_modified': get_value(row, 'Part# (AI Modified)'),
+                'line': get_value(row, 'Line', is_integer=True),
+                'description': get_value(row, 'Description'),
                 'manufacturer': get_value(row, 'Manufacturer'),
-                'ai_status': get_value(row, 'AI Status'),
-                'notes_by_ai': get_value(row, 'Notes By AI'),
-                'ai_confidence': get_value(row, 'AI Confidence'),
-                'ai_confidence_confirmed': get_value(row, 'AI Confidence Confirmed'),
-                'will_notes': get_value(row, 'Will Notes'),
-                'nejat_notes': get_value(row, 'Nejat Notes'),
-                'kc_notes': get_value(row, 'KC Notes'),
-                'initial_email_communication': get_value(row, 'Initial Email Communication'),
-                'follow_up_email_communication_date': get_value(row, 'Follow up Email Communication Date'),
-                'ricky_notes': get_value(row, "Ricky's Notes"),
-                'stephanie_notes': get_value(row, 'Stephanie Notes'),
-                'pit_notes': get_value(row, 'PIT Notes'),
-                'row_index': index + 1  # 1-based index for reference
+                'manufacturer_part_number': get_value(row, 'Manufacturer Part # or Gore Part # or MD Drawing #'),
+                'qty_on_machine': get_value(row, 'Qty. on Machine', is_integer=True),
+                'suggested_supplier': get_value(row, 'Suggested Supplier (when applicable)'),
+                'supplier_part_number': get_value(row, 'Supplier Part Number (when applicable)'),
+                'gore_stock_number': get_value(row, 'Gore Stock number (ERP#) (when applicable)', is_integer=True),
+                'is_part_likely_to_fail': get_value(row, 'Is Part likely to fail during the life of the machine?'),
+                'will_failure_stop_machine': get_value(row, 'Will Part Failure stop the machine from supporting production?'),
+                'stocking_decision': get_value(row, 'Stocking Decision'),
+                'min_qty_to_stock': get_value(row, 'Min Qty to Stock for this Machine', is_integer=True),
+                'part_replacement_line_number': get_value(row, 'Part Replacement Line # (Refer to 6.3.4 in MD205158)'),
+                'notes': get_value(row, 'Notes (Refer to 6.1.4.4 of MD205158)'),
+                'row_index': index + 18  # Actual row number in Excel (1-based)
             }
             
-            # Skip completely empty rows (no part manufacturer or part number)
-            if not product['part_manufacturer'] and not product['manufacturer_part_number']:
+            # Skip completely empty rows (no manufacturer or part number)
+            if not product['manufacturer'] and not product['manufacturer_part_number']:
                 continue
             
             products.append(product)
         
         return products
         
+    except Exception as e:
+        raise Exception(f"Error extracting products: {str(e)}")
+
+
+def parse_excel_file(file_content: bytes, filename: str) -> List[Dict[str, Any]]:
+    """
+    Parse Excel file and return product list (legacy function for backward compatibility)
+    
+    Args:
+        file_content: Binary content of the Excel file
+        filename: Original filename
+        
+    Returns:
+        List of dictionaries containing product information
+    """
+    return extract_products_from_row_18(file_content, filename)
+
+
+def parse_excel_file_complete(file_content: bytes, filename: str) -> Dict[str, Any]:
+    """
+    Parse Excel file and return both general information and products list
+    
+    Args:
+        file_content: Binary content of the Excel file
+        filename: Original filename
+        
+    Returns:
+        Dictionary containing 'general_info' and 'products'
+    """
+    try:
+        general_info = extract_general_information(file_content, filename)
+        products = extract_products_from_row_18(file_content, filename)
+        
+        return {
+            'general_info': general_info,
+            'products': products,
+            'total_products': len(products)
+        }
     except Exception as e:
         raise Exception(f"Error parsing Excel file: {str(e)}")
 
@@ -174,3 +259,21 @@ def split_products_into_chunks(products: List[Dict[str, Any]], chunk_size: int =
         chunks.append(products[i:i + chunk_size])
     return chunks
 
+
+if __name__ == "__main__":
+    # Test the extraction functions
+    file = "../3000027009 Bonder, Split Die, V3.18.xlsx"
+    with open(file, "rb") as f:
+        file_content = f.read()
+    
+    # Test general information extraction
+    general_info = extract_general_information(file_content, file)
+    print("General Information:")
+    print(general_info)
+    
+    # Test products extraction
+    products = extract_products_from_row_18(file_content, file)
+    print(f"\nProducts found: {len(products)}")
+    if products:
+        print("First product:")
+        print(products[0])
