@@ -8,6 +8,7 @@ import os
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, backend_dir)
 from services.ai_service import AIService
+from services.azure_ai_service import AzureAIService
 from services.excel_service import split_products_into_chunks
 import json
 import concurrent.futures
@@ -15,6 +16,7 @@ from typing import List, Dict, Any
 
 analyze_bp = Blueprint('analyze', __name__)
 ai_service = AIService()
+azure_ai_service = AzureAIService()
 
 
 @analyze_bp.route('/analyze', methods=['POST'])
@@ -135,13 +137,17 @@ def _stream_analysis(products: List[Dict[str, Any]]):
         all_results = []
         conversation_id = None
         
+        service_type = "azure"
+
+        analyze_service = azure_ai_service if service_type == "azure" else ai_service
+
         # Process chunks sequentially for streaming (can be parallelized with more complex logic)
         for idx, chunk in enumerate(chunks):
             # Send chunk progress
             yield f"data: {json.dumps({'type': 'chunk_start', 'chunk': idx + 1, 'total_chunks': total_chunks, 'products_in_chunk': len(chunk)})}\n\n"
             
             # Analyze chunk
-            for stream_data in ai_service.analyze_product_chunk_streaming(chunk, conversation_id):
+            for stream_data in analyze_service.analyze_product_chunk_streaming(chunk, conversation_id):
                 yield f"data: {stream_data}\n\n"
                 
                 # Parse the stream data to extract results
