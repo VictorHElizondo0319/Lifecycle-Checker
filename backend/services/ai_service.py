@@ -11,7 +11,7 @@ import os
 # Add backend directory to path
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, backend_dir)
-from config import SYSTEM_PROMPT
+from config import SYSTEM_PROMPT, SYSTEM_PROMPT_FIND_REPLACEMENT
 
 
 class AIService:
@@ -19,6 +19,8 @@ class AIService:
         """Initialize OpenAI client"""
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.system_prompt = SYSTEM_PROMPT
+        self.system_prompt_find_replacement = SYSTEM_PROMPT_FIND_REPLACEMENT
+
     
     def analyze_product_chunk(self, products: List[Dict[str, Any]], conversation_id: str = None) -> Dict[str, Any]:
         """
@@ -141,7 +143,73 @@ class AIService:
                 'message': str(e),
                 'products_analyzed': len(products)
             })
-    
+    def find_product_replacement_chunk_streaming(self, products: List[Dict[str, Any]], conversation_id: str = None) -> Generator[str, None, None]:
+        """
+        Analyze a chunk of products using OpenAI with streaming response
+        
+        Args:
+            products: List of product dictionaries to analyze
+            conversation_id: Optional conversation ID for context
+            
+        Yields:
+            JSON strings containing partial or complete analysis results
+        """
+        try:
+            # Format products for analysis
+            product_list_text = self._format_products_for_analysis(products)
+            
+            # Use Chat API for streaming (if Responses API doesn't support streaming)
+            # For now, we'll use the Responses API and yield the complete result
+            # In a real implementation, you might want to use chat completions with streaming
+            
+            create_params = {
+                "model": "gpt-4.1",
+                "instructions": self.system_prompt_find_replacement,
+                "input": product_list_text,
+                "tools": [{"type": "web_search"}],
+                "max_output_tokens": 2500,
+                "temperature": 0.2,
+            }
+            # Add previous_response_id if available for conversation continuity
+            if conversation_id:
+                create_params["previous_response_id"] = conversation_id
+            
+            resp = self.client.responses.create(**create_params)
+            
+            # Extract response ID for next call (for conversation continuity)
+            new_response_id = getattr(resp, "id", None)
+            response_text = resp.output_text.strip()
+            
+            # Parse JSON from response
+            parsed_json = self._parse_json_from_response(response_text)
+            
+            # Yield progress updates
+            yield json.dumps({
+                'type': 'progress',
+                'message': f'Analyzing {len(products)} products...'
+            })
+            
+            # Yield the complete result
+            if parsed_json:
+                yield json.dumps({
+                    'type': 'result',
+                    'conversation_id': new_response_id or conversation_id,  # Store response ID for next chunk
+                    'data': parsed_json,
+                    'products_analyzed': len(products)
+                })
+            else:
+                yield json.dumps({
+                    'type': 'error',
+                    'message': 'Failed to parse JSON from response',
+                    'raw_response': response_text[:500]  # First 500 chars
+                })
+                
+        except Exception as e:
+            yield json.dumps({
+                'type': 'error',
+                'message': str(e),
+                'products_analyzed': len(products)
+        })
     def _format_products_for_analysis(self, products: List[Dict[str, Any]]) -> str:
         """
         Format products list as text for AI analysis
