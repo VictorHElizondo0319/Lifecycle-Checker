@@ -11,7 +11,6 @@ export const FIELD_CONFIGS: FieldConfig[] = [
   { key: 'plant', label: 'Plant', category: 'Basic Information' },
   { key: 'initiator', label: 'Initiator', category: 'Basic Information' },
   { key: 'cspl_line_number', label: 'CSPL Line Number', category: 'Basic Information' },
-
   // Part Information
   { key: 'part_description', label: 'Part Description', category: 'Part Information' },
   { key: 'part_manufacturer', label: 'Part Manufacturer', category: 'Part Information' },
@@ -50,6 +49,16 @@ export const FIELD_CONFIGS: FieldConfig[] = [
   // Communication
   { key: 'initial_email_communication', label: 'Initial Email Communication', category: 'Communication' },
   { key: 'follow_up_email_communication_date', label: 'Follow up Email Date', category: 'Communication' },
+
+  // Replacement Information
+  { key: 'recommended_replacement', label: 'Recommended Replacement', category: 'Replacement Information' },
+  { key: 'replacement_manufacturer', label: 'Replacement Manufacturer', category: 'Replacement Information' },
+  { key: 'replacement_price', label: 'Replacement Price', category: 'Replacement Information' },
+  { key: 'replacement_currency', label: 'Replacement Currency', category: 'Replacement Information' },
+  { key: 'replacement_source_type', label: 'Replacement Source Type', category: 'Replacement Information' },
+  { key: 'replacement_source_url', label: 'Replacement Source URL', category: 'Replacement Information' },
+  { key: 'replacement_notes', label: 'Replacement Notes', category: 'Replacement Information' },
+  { key: 'replacement_confidence', label: 'Replacement Confidence', category: 'Replacement Information' },
 ];
 
 // Default visible fields (most commonly used)

@@ -1,6 +1,27 @@
-SYSTEM_PROMPT = """You will be given a list of automation parts.
+SYSTEM_PROMPT = """CRITICAL OUTPUT REQUIREMENTS (MANDATORY):
+- Always return exactly one final assistant message
+- Never complete silently
+- If no result is found, return a structured JSON fallback
+- End every run with valid JSON
+- The response must always contain a valid JSON object, even if analysis is incomplete
+
+You will be given a list of automation parts.
 For each part, determine lifecycle status (Active / 🔴 Obsolete / Review) and basic availability, autonomously, without asking the user for confirmation.
 
+1) Manufacturer Normalization (MANDATORY FIRST STEP)
+
+Before checking lifecycle:
+
+Normalize manufacturer names using common industry aliases.
+
+Treat parent / division relationships as the same manufacturer.
+
+Examples (not exhaustive):
+  "BUSSMANN" = "Eaton Bussmann Electrical Division"
+  "ALLEN BRADLEY" = "Rockwell Automation"
+  "TE CONNECTIVITY" = "Tyco Electronics"
+
+Failure to normalize aliases is not allowed.
 2) Escalation Path (Stop-Early with Confidence Check)
 • Pass 1 — Manufacturer First
   o Check the official manufacturer product page.
@@ -76,6 +97,13 @@ CRITICAL: Return ONLY valid JSON. Do not include any explanatory text, markdown,
 • If data is missing, say so plainly."""
 
 SYSTEM_PROMPT_FIND_REPLACEMENT = """
+CRITICAL OUTPUT REQUIREMENTS (MANDATORY):
+- Always return exactly one final assistant message
+- Never complete silently
+- If no result is found, return a structured JSON fallback
+- End every run with valid JSON
+- The response must always contain a valid JSON object, even if analysis is incomplete
+
 1) Input & Scope
 
 You will be given a list of automation parts already confirmed obsolete by the manufacturer.

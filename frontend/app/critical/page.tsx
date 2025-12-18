@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Product, AnalysisResult, GeneralInfo as GeneralInfoType } from '@/types';
-import { uploadExcelFile, analyzeProductsStream, exportExcelFile } from '@/lib/api';
+import { uploadExcelFile, analyzeProductsStream, findReplacementsStream, exportExcelFile } from '@/lib/api';
 import Table from '@/components/Table';
 import FieldSelector from '@/components/FieldSelector';
 import FilterBar from '@/components/FilterBar';
@@ -22,6 +22,8 @@ export default function CriticalPage() {
   const [visibleFields, setVisibleFields] = useState<Set<string>>(CRITICAL_DEFAULT_VISIBLE_FIELDS);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<(() => void) | null>(null);
+  const [isAnalyzed, setIsAnalyzed] = useState(false);
+  const [isLookingForReplacements, setIsLookingForReplacements] = useState(false);
 
   const normalize = useCallback((value?: string) => value?.trim().toUpperCase() || '', []);
   
@@ -126,6 +128,7 @@ export default function CriticalPage() {
       return;
     }
 
+    setIsAnalyzed(false);
     setAnalyzing(true);
     setError('');
     setResults([]);
@@ -149,6 +152,7 @@ export default function CriticalPage() {
             setProducts((prev) => mergeResultsIntoProducts(prev, event.results));
             setProgress(`Analysis complete! Analyzed ${event.total_analyzed} products.`);
             setAnalyzing(false);
+            setIsAnalyzed(true);
           } else if (event.type === 'error') {
             setError(event.message || 'Analysis error occurred');
             setAnalyzing(false);
@@ -167,6 +171,111 @@ export default function CriticalPage() {
     }
   };
 
+  const handleFindReplacements = async () => {
+    if (products.length === 0) {
+      setError('Please upload an Excel file first');
+      return;
+    }
+
+    // Filter to only obsolete products
+    const obsoleteProducts = products.filter((product) => {
+      const status = product.ai_status || '';
+      return status.includes('Obsolete') || status === '🔴 Obsolete';
+    });
+
+    if (obsoleteProducts.length === 0) {
+      setError('No obsolete products found. Please analyze products first to identify obsolete parts.');
+      return;
+    }
+
+    setIsLookingForReplacements(true);
+    setError('');
+    setProgress('Starting replacement search...');
+
+    try {
+      const abort = findReplacementsStream(
+        obsoleteProducts,
+        (event) => {
+          if (event.type === 'start') {
+            setProgress(`Finding replacements for ${event.total_products} obsolete products in ${event.total_chunks} chunks...`);
+          } else if (event.type === 'chunk_start') {
+            setProgress(`Processing chunk ${event.chunk}/${event.total_chunks} (${event.products_in_chunk} products)...`);
+          } else if (event.type === 'chunk_complete') {
+            setProgress(`Completed chunk ${event.chunk}/${event.total_chunks}`);
+          } else if (event.type === 'result' && event.data?.results) {
+            // Merge replacement results into products
+            const replacementResults = event.data.results;
+            setProducts((prev) =>
+              prev.map((product) => {
+                const replacement = replacementResults.find(
+                  (r: any) =>
+                    normalize(r.obsolete_part_number || r.part_number || '') ===
+                      normalize(product.manufacturer_part_number || product.part_number_ai_modified || '') &&
+                    normalize(r.manufacturer || '') === normalize(product.part_manufacturer || product.manufacturer || '')
+                );
+                if (replacement) {
+                  return {
+                    ...product,
+                    recommended_replacement: replacement.recommended_replacement,
+                    replacement_manufacturer: replacement.replacement_manufacturer,
+                    replacement_price: replacement.price,
+                    replacement_currency: replacement.currency,
+                    replacement_source_type: replacement.source_type,
+                    replacement_source_url: replacement.source_url,
+                    replacement_notes: replacement.notes,
+                    replacement_confidence: replacement.confidence,
+                  };
+                }
+                return product;
+              })
+            );
+          } else if (event.type === 'complete' && event.results) {
+            // Merge final replacement results
+            const replacementResults = event.results;
+            setProducts((prev) =>
+              prev.map((product) => {
+                const replacement = replacementResults.find(
+                  (r: any) =>
+                    normalize(r.obsolete_part_number || r.part_number || '') ===
+                      normalize(product.manufacturer_part_number || product.part_number_ai_modified || '') &&
+                    normalize(r.manufacturer || '') === normalize(product.part_manufacturer || product.manufacturer || '')
+                );
+                if (replacement) {
+                  return {
+                    ...product,
+                    recommended_replacement: replacement.recommended_replacement,
+                    replacement_manufacturer: replacement.replacement_manufacturer,
+                    replacement_price: replacement.price,
+                    replacement_currency: replacement.currency,
+                    replacement_source_type: replacement.source_type,
+                    replacement_source_url: replacement.source_url,
+                    replacement_notes: replacement.notes,
+                    replacement_confidence: replacement.confidence,
+                  };
+                }
+                return product;
+              })
+            );
+            setProgress(`Replacement search complete! Processed ${event.total_analyzed} products.`);
+            setIsLookingForReplacements(false);
+          } else if (event.type === 'error') {
+            setError(event.message || 'Replacement search error occurred');
+            setIsLookingForReplacements(false);
+          }
+        },
+        (err) => {
+          setError(err.message);
+          setIsLookingForReplacements(false);
+        }
+      );
+
+      abortControllerRef.current = abort;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start replacement search');
+      setIsLookingForReplacements(false);
+    }
+  };
+
   const handleExportExcel = async () => {
     if (products.length === 0) {
       setError('Please upload an Excel file first');
@@ -175,10 +284,14 @@ export default function CriticalPage() {
     setExporting(true);
     setError('');
     try {
-      //TODO: CPSL number
-      await exportExcelFile({cols: Array.from(FIELD_CONFIGS), 
-        products: products.map((product) => ({...product, ...pickGeneralInfo}))}
-      );
+      // Export all product fields including replacement fields
+      await exportExcelFile({
+        cols: Array.from(FIELD_CONFIGS),
+        products: results.map((result: AnalysisResult) => ({
+          ...result,
+          ...pickGeneralInfo
+        }))
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to export Excel file');
     } finally {
@@ -202,9 +315,18 @@ export default function CriticalPage() {
     setError('');
     setProgress('');
     setVisibleFields(CRITICAL_DEFAULT_VISIBLE_FIELDS);
+    setIsAnalyzed(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  const handleFindObsolete = () => {
+    const obsoleteProducts = products.filter((product) => {
+      const status = product.ai_status || '';
+      return status.includes('Obsolete') || status === '🔴 Obsolete';
+    });
+    setFilteredProducts(obsoleteProducts);
   };
 
   const handleToggleField = (fieldKey: string) => {
@@ -287,7 +409,7 @@ export default function CriticalPage() {
         {generalInfo && <GeneralInfoComponent generalInfo={generalInfo} />}
 
         {/* Product List Display */}
-        {products.length > 0 && results.length === 0 && (
+        {products.length > 0 && (
           <div className="mb-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-4">
@@ -303,20 +425,15 @@ export default function CriticalPage() {
                 />
               </div>
               <div className="flex items-center gap-4">
-                <button
-                  onClick={handleAnalyze}
-                  disabled={analyzing}
-                  className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {analyzing ? 'Analyzing...' : 'Analyze Products'}
-                </button>
-                <button
-                  onClick={handleExportExcel}
-                  disabled={exporting}
-                  className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {exporting ? 'Exporting...' : 'Export Excel'}
-                </button>
+                {!isAnalyzed && (
+                  <button
+                    onClick={handleAnalyze}
+                    disabled={analyzing}
+                    className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {analyzing ? 'Analyzing...' : 'Analyze Products'}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -346,14 +463,40 @@ export default function CriticalPage() {
               <h2 className="text-lg font-semibold text-gray-800">
                 Analysis Results ({results.length})
               </h2>
-              {analyzing && (
-                <button
-                  onClick={handleCancel}
-                  className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-                >
-                  Cancel
-                </button>
-              )}
+              <div className="flex items-center gap-4">
+                {analyzing && (
+                  <button
+                    onClick={handleCancel}
+                    className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                  >
+                    Cancel
+                  </button>
+                )}
+                {isAnalyzed && (
+                  <>
+                    <button
+                      onClick={handleFindObsolete}
+                      className="rounded-lg bg-gradient-to-r from-orange-600 to-red-600 px-6 py-2 text-white font-medium hover:from-orange-700 hover:to-red-700"
+                    >
+                      Find Obsolete
+                    </button>
+                    <button
+                      onClick={handleFindReplacements}
+                      disabled={isLookingForReplacements}
+                      className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isLookingForReplacements ? 'Finding Replacements...' : 'Find Replacement Parts'}
+                    </button>
+                    <button
+                      onClick={handleExportExcel}
+                      disabled={exporting}
+                      className="rounded-lg bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-2 text-white font-medium hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {exporting ? 'Exporting...' : 'Export Analyze Result'}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
             <div className="overflow-x-auto rounded-lg border border-gray-200">
               <table className="min-w-full divide-y divide-gray-200">

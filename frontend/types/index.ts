@@ -37,6 +37,15 @@ export interface Product {
   stephanie_notes: string;
   pit_notes: string;
   row_index?: number;
+  // Replacement Information
+  recommended_replacement?: string;
+  replacement_manufacturer?: string;
+  replacement_price?: number | null;
+  replacement_currency?: string | null;
+  replacement_source_type?: string;
+  replacement_source_url?: string;
+  replacement_notes?: string;
+  replacement_confidence?: string;
 }
 
 export interface AnalysisResult {

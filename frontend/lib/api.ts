@@ -110,6 +110,64 @@ export function analyzeProductsStream(
   };
 }
 
+export function findReplacementsStream(
+  products: Product[],
+  onEvent: (event: any) => void,
+  onError?: (error: Error) => void
+): () => void {
+  const abortController = new AbortController();
+  fetch(`${API_BASE_URL}/api/find_replacements`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      products,
+    }),
+    signal: abortController.signal,
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error('Failed to start replacement finding');
+      }
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        throw new Error('No response body');
+      }
+      
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              onEvent(data);
+            }
+            catch (e) {
+              console.error('Failed to parse SSE data:', e);
+            }
+          }
+        }
+      }
+    }
+    )
+    .catch((error) => {
+      if (error.name !== 'AbortError' && onError) {
+        onError(error);
+      }
+    });
+  return () => {
+    abortController.abort();
+  }
+}
 export async function exportExcelFile({cols, products}: {cols: FieldConfig[], products: any[]}): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/excel/export`, {
     method: 'POST',

@@ -18,7 +18,7 @@ analyze_bp = Blueprint('analyze', __name__)
 ai_service = AIService()
 azure_ai_service = AzureAIService()
 
-
+CHUNK_SIZE = 10
 @analyze_bp.route('/analyze', methods=['POST'])
 def analyze_products():
     """
@@ -81,7 +81,7 @@ def analyze_products():
         
         # Non-streaming: process all products
         # Split into chunks of 30 for parallel processing
-        chunks = split_products_into_chunks(products, chunk_size=30)
+        chunks = split_products_into_chunks(products, chunk_size=CHUNK_SIZE)
         
         all_results = []
         conversation_id = None
@@ -128,7 +128,7 @@ def _stream_analysis(products: List[Dict[str, Any]]):
     """
     try:
         # Split into chunks
-        chunks = split_products_into_chunks(products, chunk_size=30)
+        chunks = split_products_into_chunks(products, chunk_size=CHUNK_SIZE)
         total_chunks = len(chunks)
         
         # Send initial progress
@@ -170,3 +170,119 @@ def _stream_analysis(products: List[Dict[str, Any]]):
     except Exception as e:
         yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
+@analyze_bp.route('/find_replacements', methods=['POST'])
+def find_replacements():
+    """
+    Find replacement parts for obsolete products using Azure AI
+    POST /api/find_replacements
+    
+    Request:
+        {
+            "products": [
+                {
+                    "manufacturer": "BANNER",
+                    "part_number": "45136"
+                },
+                ...
+            ]
+        }
+        
+    Response:
+        Server-Sent Events (SSE) stream with JSON objects
+    """
+    try:
+        data = request.json or {}
+        products = data.get('products', [])
+        
+        if not products:
+            return jsonify({"error": "No products provided"}), 400
+        
+        if not isinstance(products, list):
+            return jsonify({"error": "Products must be a list"}), 400
+        
+        # Return streaming response
+        return Response(
+            _stream_find_replacements(products),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no'
+            }
+        )
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+def _stream_find_replacements(products: List[Dict[str, Any]]):
+    """
+    Stream replacement finding results using Server-Sent Events
+    
+    Args:
+        products: List of products to find replacements for
+    Yields:
+        SSE-formatted strings
+    """
+    try:
+        # Split into chunks
+        chunks = split_products_into_chunks(products, chunk_size=CHUNK_SIZE)
+        total_chunks = len(chunks)
+        
+        # Send initial progress
+        yield f"data: {json.dumps({'type': 'start', 'total_chunks': total_chunks, 'total_products': len(products)})}\n\n"
+        
+        all_results = []
+        conversation_id = None
+        
+        # Use Azure AI service for finding replacements
+        service_type = "azure"
+        replacement_service = azure_ai_service if service_type == "azure" else ai_service
+        
+        # Process chunks sequentially for streaming
+        for idx, chunk in enumerate(chunks):
+            # Send chunk progress
+            yield f"data: {json.dumps({'type': 'chunk_start', 'chunk': idx + 1, 'total_chunks': total_chunks, 'products_in_chunk': len(chunk)})}\n\n"
+            
+            # Find replacements for chunk using Azure AI
+            if service_type == "azure":
+                for stream_data in replacement_service.find_replacement_chunk_streaming(chunk, conversation_id):
+                    yield f"data: {stream_data}\n\n"
+                    
+                    # Parse the stream data to extract results
+                    try:
+                        stream_obj = json.loads(stream_data)
+                        if stream_obj.get('type') == 'result' and stream_obj.get('data'):
+                            chunk_results = stream_obj['data'].get('results', [])
+                            all_results.extend(chunk_results)
+                            if stream_obj.get('conversation_id'):
+                                conversation_id = stream_obj['conversation_id']
+                    except:
+                        pass
+            else:
+                # Fallback to OpenAI service if needed
+                for stream_data in replacement_service.find_product_replacement_chunk_streaming(chunk, conversation_id):
+                    yield f"data: {stream_data}\n\n"
+                    
+                    # Parse the stream data to extract results
+                    try:
+                        stream_obj = json.loads(stream_data)
+                        if stream_obj.get('type') == 'result' and stream_obj.get('data'):
+                            chunk_results = stream_obj['data'].get('results', [])
+                            all_results.extend(chunk_results)
+                            if stream_obj.get('conversation_id'):
+                                conversation_id = stream_obj['conversation_id']
+                    except:
+                        pass
+            
+            # Send chunk complete
+            yield f"data: {json.dumps({'type': 'chunk_complete', 'chunk': idx + 1, 'total_chunks': total_chunks})}\n\n"
+        
+        # Send final results
+        yield f"data: {json.dumps({'type': 'complete', 'results': all_results, 'total_analyzed': len(all_results)})}\n\n"
+        
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
