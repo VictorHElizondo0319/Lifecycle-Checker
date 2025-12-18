@@ -284,10 +284,14 @@ export default function CriticalPage() {
     setExporting(true);
     setError('');
     try {
-      //TODO: CPSL number
-      await exportExcelFile({cols: Array.from(FIELD_CONFIGS), 
-        products: products.map((product: Product) => ({...product, ...pickGeneralInfo}))}
-      );
+      // Export all product fields including replacement fields
+      await exportExcelFile({
+        cols: Array.from(FIELD_CONFIGS),
+        products: results.map((result: AnalysisResult) => ({
+          ...result,
+          ...pickGeneralInfo
+        }))
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to export Excel file');
     } finally {
@@ -311,9 +315,18 @@ export default function CriticalPage() {
     setError('');
     setProgress('');
     setVisibleFields(CRITICAL_DEFAULT_VISIBLE_FIELDS);
+    setIsAnalyzed(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  const handleFindObsolete = () => {
+    const obsoleteProducts = products.filter((product) => {
+      const status = product.ai_status || '';
+      return status.includes('Obsolete') || status === '🔴 Obsolete';
+    });
+    setFilteredProducts(obsoleteProducts);
   };
 
   const handleToggleField = (fieldKey: string) => {
@@ -396,7 +409,7 @@ export default function CriticalPage() {
         {generalInfo && <GeneralInfoComponent generalInfo={generalInfo} />}
 
         {/* Product List Display */}
-        {products.length > 0 && results.length === 0 && (
+        {products.length > 0 && (
           <div className="mb-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-4">
@@ -412,29 +425,15 @@ export default function CriticalPage() {
                 />
               </div>
               <div className="flex items-center gap-4">
-                <button
-                  onClick={handleAnalyze}
-                  disabled={analyzing}
-                  className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {analyzing ? 'Analyzing...' : 'Analyze Products'}
-                </button>
-                {isAnalyzed && (
+                {!isAnalyzed && (
                   <button
-                    onClick={handleFindReplacements}
-                    disabled={isLookingForReplacements}
+                    onClick={handleAnalyze}
+                    disabled={analyzing}
                     className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isLookingForReplacements ? 'Finding Replacements...' : 'Find Replacement Parts'}
+                    {analyzing ? 'Analyzing...' : 'Analyze Products'}
                   </button>
                 )}
-                <button
-                  onClick={handleExportExcel}
-                  disabled={exporting}
-                  className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {exporting ? 'Exporting...' : 'Export Excel'}
-                </button>
               </div>
             </div>
 
@@ -464,14 +463,40 @@ export default function CriticalPage() {
               <h2 className="text-lg font-semibold text-gray-800">
                 Analysis Results ({results.length})
               </h2>
-              {analyzing && (
-                <button
-                  onClick={handleCancel}
-                  className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-                >
-                  Cancel
-                </button>
-              )}
+              <div className="flex items-center gap-4">
+                {analyzing && (
+                  <button
+                    onClick={handleCancel}
+                    className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                  >
+                    Cancel
+                  </button>
+                )}
+                {isAnalyzed && (
+                  <>
+                    <button
+                      onClick={handleFindObsolete}
+                      className="rounded-lg bg-gradient-to-r from-orange-600 to-red-600 px-6 py-2 text-white font-medium hover:from-orange-700 hover:to-red-700"
+                    >
+                      Find Obsolete
+                    </button>
+                    <button
+                      onClick={handleFindReplacements}
+                      disabled={isLookingForReplacements}
+                      className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isLookingForReplacements ? 'Finding Replacements...' : 'Find Replacement Parts'}
+                    </button>
+                    <button
+                      onClick={handleExportExcel}
+                      disabled={exporting}
+                      className="rounded-lg bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-2 text-white font-medium hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {exporting ? 'Exporting...' : 'Export Analyze Result'}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
             <div className="overflow-x-auto rounded-lg border border-gray-200">
               <table className="min-w-full divide-y divide-gray-200">
