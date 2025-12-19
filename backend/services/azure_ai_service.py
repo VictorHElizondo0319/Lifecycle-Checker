@@ -7,7 +7,6 @@ import time
 
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
-from azure.ai.agents.models import ListSortOrder
 
 # Ensure we can import `config` from backend
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,19 +30,26 @@ class AzureAIService:
             endpoint=endpoint,
         )
 
+        # Get OpenAI client from project client
+        self.openai_client = self.project.get_openai_client()
+
         # Agent identifier configured in env
-        self.agent = self.project.agents.get_agent(agent_name)
+        self.agent = self.project.agents.get(agent_name=agent_name)
+        self.agent_name = agent_name
         self.system_prompt = SYSTEM_PROMPT
         
         # Replacement agent (optional, falls back to main agent if not set)
         if replacement_agent_name:
             try:
-                self.replacement_agent = self.project.agents.get_agent(replacement_agent_name)
+                self.replacement_agent = self.project.agents.get(agent_name=replacement_agent_name)
+                self.replacement_agent_name = replacement_agent_name
             except Exception:
                 # Fallback to main agent if replacement agent not found
                 self.replacement_agent = self.agent
+                self.replacement_agent_name = agent_name
         else:
             self.replacement_agent = self.agent
+            self.replacement_agent_name = agent_name
         
         self.system_prompt_find_replacement = SYSTEM_PROMPT_FIND_REPLACEMENT
         self.max_retries = 3
@@ -55,24 +61,91 @@ class AzureAIService:
         Returns the text from the last assistant message, or None if no assistant message exists.
         """
         response_text = None
-        for message in reversed(list(messages)):
-            # Filter by role == "assistant"
-            role = getattr(message, 'role', None)
-            if role != 'assistant':
-                continue
-            
-            # Some messages may not contain text_messages
-            if getattr(message, 'text_messages', None):
-                try:
-                    # Use last text_message chunk if available
-                    last_text_msg = message.text_messages[-1]
-                    # The SDK stores the text value under `.text.value`
-                    text_val = getattr(getattr(last_text_msg, 'text', None), 'value', None)
-                    if text_val:
-                        response_text = text_val.strip()
+        
+        # Convert messages to list for iteration
+        messages_list = list(messages) if messages else []
+        
+        # Debug: Print message structure to understand what we're working with
+        if not messages_list:
+            print("DEBUG: No messages found in thread")
+            return None
+        
+        # Try multiple strategies to find assistant messages
+        for message in reversed(messages_list):
+            try:
+                # Strategy 1: Check role attribute (case-insensitive)
+                role = getattr(message, 'role', None)
+                if role:
+                    role_lower = str(role).lower()
+                    if role_lower not in ['assistant', 'agent']:
+                        continue
+                
+                # Strategy 2: Check message type or category
+                msg_type = getattr(message, 'type', None) or getattr(message, 'message_type', None)
+                if msg_type:
+                    msg_type_lower = str(msg_type).lower()
+                    if msg_type_lower not in ['assistant', 'agent', 'ai']:
+                        continue
+                
+                # Strategy 3: If no role/type filtering, check if it's not user/system
+                if not role and not msg_type:
+                    # Skip if it's clearly a user message
+                    if hasattr(message, 'content') and isinstance(message.content, str):
+                        # Heuristic: user messages often start with "Manufacturer:" based on our format
+                        if message.content.startswith('Manufacturer:'):
+                            continue
+                
+                # Extract text from message
+                # Try multiple ways to get the text content
+                text_val = None
+                
+                # Method 1: text_messages array
+                if hasattr(message, 'text_messages') and message.text_messages:
+                    try:
+                        last_text_msg = message.text_messages[-1]
+                        if hasattr(last_text_msg, 'text'):
+                            text_obj = last_text_msg.text
+                            if hasattr(text_obj, 'value'):
+                                text_val = text_obj.value
+                            elif isinstance(text_obj, str):
+                                text_val = text_obj
+                        elif isinstance(last_text_msg, str):
+                            text_val = last_text_msg
+                    except Exception as e:
+                        print(f"DEBUG: Error extracting from text_messages: {e}")
+                
+                # Method 2: content attribute directly
+                if not text_val and hasattr(message, 'content'):
+                    content = message.content
+                    if isinstance(content, str):
+                        text_val = content
+                    elif isinstance(content, dict):
+                        text_val = content.get('text') or content.get('value')
+                
+                # Method 3: text attribute directly
+                if not text_val and hasattr(message, 'text'):
+                    text_obj = message.text
+                    if isinstance(text_obj, str):
+                        text_val = text_obj
+                    elif hasattr(text_obj, 'value'):
+                        text_val = text_obj.value
+                
+                if text_val:
+                    text_val = str(text_val).strip()
+                    if text_val:  # Only return non-empty text
+                        response_text = text_val
+                        print(f"DEBUG: Found assistant message with {len(text_val)} characters")
                         break
-                except Exception:
-                    continue
+                        
+            except Exception as e:
+                print(f"DEBUG: Error processing message: {e}")
+                continue
+        
+        if not response_text:
+            print(f"DEBUG: No assistant message found. Total messages: {len(messages_list)}")
+            # Debug: Print first few messages to understand structure
+            for i, msg in enumerate(messages_list[-3:]):  # Last 3 messages
+                print(f"DEBUG: Message {i}: role={getattr(msg, 'role', 'N/A')}, type={getattr(msg, 'type', 'N/A')}, has_text_messages={hasattr(msg, 'text_messages')}")
         
         return response_text
 
@@ -117,76 +190,56 @@ class AzureAIService:
 
     def analyze_product_chunk(self, products: List[Dict[str, Any]], conversation_id: str = None) -> Dict[str, Any]:
         """
-        Analyze products with retry logic and guaranteed response.
+        Analyze products using OpenAI client with agent reference.
         Always returns a deterministic result, even if no assistant message is found.
         """
         for attempt in range(self.max_retries):
             try:
                 product_list_text = self._format_products_for_analysis(products)
 
-                # Create or reuse a thread for the conversation
-                if conversation_id:
-                    thread_id = conversation_id
-                else:
-                    thread = self.project.agents.threads.create()
-                    thread_id = thread.id
+                # Prepare input messages
+                input_messages = [
+                    {"role": "user", "content": product_list_text}
+                ]
 
-                # Post system prompt (only when starting a new thread)
-                if not conversation_id:
-                    try:
-                        self.project.agents.messages.create(
-                            thread_id=thread_id,
-                            role="system",
-                            content=self.system_prompt,
-                        )
-                    except Exception:
-                        # Non-fatal: some agents may already have system behavior configured server-side
-                        pass
-
-                # Post user message with product list
-                self.project.agents.messages.create(
-                    thread_id=thread_id,
-                    role="user",
-                    content=product_list_text,
-                )
-
-                # Create and process a run synchronously
-                run = self.project.agents.runs.create_and_process(
-                    thread_id=thread_id,
-                    agent_id=self.agent.id,
-                )
-
-                # Check run status - don't treat silent completion as error
-                run_status = getattr(run, "status", None)
-                if run_status == "failed":
-                    # Only fail on explicit failure, not on completion without message
-                    error_msg = getattr(run, 'last_error', 'Run failed')
-                    if attempt < self.max_retries - 1:
-                        time.sleep(self.retry_delay)
-                        continue
-                    return {
-                        'success': False,
-                        'error': error_msg,
-                        'products_analyzed': len(products)
+                # Prepare extra_body with agent reference
+                extra_body = {
+                    "agent": {
+                        "name": self.agent_name,
+                        "type": "agent_reference"
                     }
+                }
 
-                # Retrieve messages and find the assistant output
-                messages = self.project.agents.messages.list(thread_id=thread_id, order=ListSortOrder.ASCENDING)
+                # Add previous_response_id for conversation continuity if available
+                if conversation_id:
+                    extra_body["previous_response_id"] = conversation_id
 
-                # Filter messages by role == "assistant"
-                response_text = self._get_assistant_message_text(messages)
+                # Call OpenAI client with agent reference
+                response = self.openai_client.responses.create(
+                    input=input_messages,
+                    extra_body=extra_body
+                )
 
-                # If no assistant message exists, inject fallback JSON
-                if response_text is None:
+                # Get response text directly
+                response_text = getattr(response, 'output_text', None)
+                if response_text:
+                    response_text = response_text.strip()
+
+                # Get response ID for conversation continuity
+                response_id = getattr(response, 'id', None) or conversation_id
+
+                # If no response text, use fallback
+                if not response_text:
                     fallback_json = self._generate_fallback_json(products, is_replacement=False)
                     return {
                         'success': True,
-                        'conversation_id': thread_id,
+                        'conversation_id': response_id,
                         'response_text': json.dumps(fallback_json),
                         'parsed_json': fallback_json,
                         'products_analyzed': len(products)
                     }
 
+                # Parse JSON from response
                 parsed_json = self._parse_json_from_response(response_text)
 
                 # If JSON parsing failed, use fallback
@@ -194,7 +247,7 @@ class AzureAIService:
                     fallback_json = self._generate_fallback_json(products, is_replacement=False)
                     return {
                         'success': True,
-                        'conversation_id': thread_id,
+                        'conversation_id': response_id,
                         'response_text': response_text or json.dumps(fallback_json),
                         'parsed_json': fallback_json,
                         'products_analyzed': len(products)
@@ -202,13 +255,14 @@ class AzureAIService:
 
                 return {
                     'success': True,
-                    'conversation_id': thread_id,
+                    'conversation_id': response_id,
                     'response_text': response_text,
                     'parsed_json': parsed_json,
                     'products_analyzed': len(products)
                 }
 
             except Exception as e:
+                print(f"DEBUG: Error in analyze_product_chunk (attempt {attempt + 1}): {e}")
                 if attempt < self.max_retries - 1:
                     time.sleep(self.retry_delay)
                     continue
@@ -234,82 +288,61 @@ class AzureAIService:
 
     def analyze_product_chunk_streaming(self, products: List[Dict[str, Any]], conversation_id: str = None) -> Generator[str, None, None]:
         """
-        Stream analysis results with retry logic and guaranteed response.
+        Stream analysis results using OpenAI client with agent reference.
         Always returns a deterministic result, even if no assistant message is found.
         """
         for attempt in range(self.max_retries):
             try:
                 product_list_text = self._format_products_for_analysis(products)
 
-                # Create or reuse thread
-                if conversation_id:
-                    thread_id = conversation_id
-                else:
-                    thread = self.project.agents.threads.create()
-                    thread_id = thread.id
-
-                # Post system prompt for new threads
-                if not conversation_id:
-                    try:
-                        self.project.agents.messages.create(
-                            thread_id=thread_id,
-                            role="system",
-                            content=self.system_prompt,
-                        )
-                    except Exception:
-                        pass
-
-                # Post user message
-                self.project.agents.messages.create(
-                    thread_id=thread_id,
-                    role="user",
-                    content=product_list_text,
-                )
-
                 yield json.dumps({
                     'type': 'progress',
                     'message': f'Analyzing {len(products)} products...'
                 })
 
-                # Start the run
-                run = self.project.agents.runs.create_and_process(
-                    thread_id=thread_id,
-                    agent_id=self.agent.id,
+                # Prepare input messages
+                input_messages = [
+                    {"role": "user", "content": product_list_text}
+                ]
+
+                # Prepare extra_body with agent reference
+                extra_body = {
+                    "agent": {
+                        "name": self.agent_name,
+                        "type": "agent_reference"
+                    }
+                }
+
+                # Add previous_response_id for conversation continuity if available
+                if conversation_id:
+                    extra_body["previous_response_id"] = conversation_id
+
+                # Call OpenAI client with agent reference
+                response = self.openai_client.responses.create(
+                    input=input_messages,
+                    extra_body=extra_body
                 )
 
-                # Check run status - don't treat silent completion as error
-                run_status = getattr(run, "status", None)
-                if run_status == "failed":
-                    error_msg = getattr(run, 'last_error', 'Run failed')
-                    if attempt < self.max_retries - 1:
-                        time.sleep(self.retry_delay)
-                        continue
-                    # On final failure, return fallback instead of error
+                # Get response text directly
+                response_text = getattr(response, 'output_text', None)
+                if response_text:
+                    response_text = response_text.strip()
+
+                # Get response ID for conversation continuity
+                response_id = getattr(response, 'id', None) or conversation_id
+
+                # If no response text, use fallback
+                if not response_text:
                     fallback_json = self._generate_fallback_json(products, is_replacement=False)
                     yield json.dumps({
                         'type': 'result',
-                        'conversation_id': thread_id,
+                        'conversation_id': response_id,
                         'data': fallback_json,
                         'products_analyzed': len(products)
                     })
                     return
 
-                messages = self.project.agents.messages.list(thread_id=thread_id, order=ListSortOrder.ASCENDING)
-
-                # Filter messages by role == "assistant"
-                response_text = self._get_assistant_message_text(messages)
-
-                # If no assistant message exists, inject fallback JSON
-                if response_text is None:
-                    fallback_json = self._generate_fallback_json(products, is_replacement=False)
-                    yield json.dumps({
-                        'type': 'result',
-                        'conversation_id': thread_id,
-                        'data': fallback_json,
-                        'products_analyzed': len(products)
-                    })
-                    return
-
+                # Parse JSON from response
                 parsed_json = self._parse_json_from_response(response_text)
 
                 # If JSON parsing failed, use fallback
@@ -317,7 +350,7 @@ class AzureAIService:
                     fallback_json = self._generate_fallback_json(products, is_replacement=False)
                     yield json.dumps({
                         'type': 'result',
-                        'conversation_id': thread_id,
+                        'conversation_id': response_id,
                         'data': fallback_json,
                         'products_analyzed': len(products)
                     })
@@ -326,13 +359,14 @@ class AzureAIService:
                 # Success - return parsed JSON
                 yield json.dumps({
                     'type': 'result',
-                    'conversation_id': thread_id,
+                    'conversation_id': response_id,
                     'data': parsed_json,
                     'products_analyzed': len(products)
                 })
                 return
 
             except Exception as e:
+                print(f"DEBUG: Error in analyze_product_chunk_streaming (attempt {attempt + 1}): {e}")
                 if attempt < self.max_retries - 1:
                     time.sleep(self.retry_delay)
                     continue
@@ -368,7 +402,7 @@ class AzureAIService:
                 product.get('part_number', '') or
                 product.get('part_number_ai_modified', '')
             )
-            lines.append(f"Manufacturer: {manufacturer}\tManufacturer Part #: {part_number}\n")
+            lines.append(f"{manufacturer}\t{part_number}\n")
 
         return "\n".join(lines)
 
@@ -417,7 +451,7 @@ class AzureAIService:
 
     def find_replacement_chunk_streaming(self, products: List[Dict[str, Any]], conversation_id: str = None) -> Generator[str, None, None]:
         """
-        Find replacement parts for obsolete products using Azure AI with streaming response.
+        Find replacement parts for obsolete products using OpenAI client with agent reference.
         Always returns a deterministic result, even if no assistant message is found.
         
         Args:
@@ -431,75 +465,54 @@ class AzureAIService:
             try:
                 product_list_text = self._format_products_for_analysis(products)
 
-                # Create or reuse thread
-                if conversation_id:
-                    thread_id = conversation_id
-                else:
-                    thread = self.project.agents.threads.create()
-                    thread_id = thread.id
-
-                # Post system prompt for new threads (using replacement-specific prompt)
-                if not conversation_id:
-                    try:
-                        self.project.agents.messages.create(
-                            thread_id=thread_id,
-                            role="system",
-                            content=self.system_prompt_find_replacement,
-                        )
-                    except Exception:
-                        pass
-
-                # Post user message
-                self.project.agents.messages.create(
-                    thread_id=thread_id,
-                    role="user",
-                    content=product_list_text,
-                )
-
                 yield json.dumps({
                     'type': 'progress',
                     'message': f'Finding replacements for {len(products)} products...'
                 })
 
-                # Start the run using replacement agent
-                run = self.project.agents.runs.create_and_process(
-                    thread_id=thread_id,
-                    agent_id=self.replacement_agent.id,
+                # Prepare input messages
+                input_messages = [
+                    {"role": "user", "content": product_list_text}
+                ]
+
+                # Prepare extra_body with replacement agent reference
+                extra_body = {
+                    "agent": {
+                        "name": self.replacement_agent_name,
+                        "type": "agent_reference"
+                    }
+                }
+
+                # Add previous_response_id for conversation continuity if available
+                if conversation_id:
+                    extra_body["previous_response_id"] = conversation_id
+
+                # Call OpenAI client with agent reference
+                response = self.openai_client.responses.create(
+                    input=input_messages,
+                    extra_body=extra_body
                 )
 
-                # Check run status - don't treat silent completion as error
-                run_status = getattr(run, "status", None)
-                if run_status == "failed":
-                    error_msg = getattr(run, 'last_error', 'Run failed')
-                    if attempt < self.max_retries - 1:
-                        time.sleep(self.retry_delay)
-                        continue
-                    # On final failure, return fallback instead of error
+                # Get response text directly
+                response_text = getattr(response, 'output_text', None)
+                if response_text:
+                    response_text = response_text.strip()
+
+                # Get response ID for conversation continuity
+                response_id = getattr(response, 'id', None) or conversation_id
+
+                # If no response text, use fallback
+                if not response_text:
                     fallback_json = self._generate_fallback_json(products, is_replacement=True)
                     yield json.dumps({
                         'type': 'result',
-                        'conversation_id': thread_id,
+                        'conversation_id': response_id,
                         'data': fallback_json,
                         'products_analyzed': len(products)
                     })
                     return
 
-                messages = self.project.agents.messages.list(thread_id=thread_id, order=ListSortOrder.ASCENDING)
-
-                # Filter messages by role == "assistant"
-                response_text = self._get_assistant_message_text(messages)
-
-                # If no assistant message exists, inject fallback JSON
-                if response_text is None:
-                    fallback_json = self._generate_fallback_json(products, is_replacement=True)
-                    yield json.dumps({
-                        'type': 'result',
-                        'conversation_id': thread_id,
-                        'data': fallback_json,
-                        'products_analyzed': len(products)
-                    })
-                    return
-
+                # Parse JSON from response
                 parsed_json = self._parse_json_from_response(response_text)
 
                 # If JSON parsing failed, use fallback
@@ -507,7 +520,7 @@ class AzureAIService:
                     fallback_json = self._generate_fallback_json(products, is_replacement=True)
                     yield json.dumps({
                         'type': 'result',
-                        'conversation_id': thread_id,
+                        'conversation_id': response_id,
                         'data': fallback_json,
                         'products_analyzed': len(products)
                     })
@@ -516,13 +529,14 @@ class AzureAIService:
                 # Success - return parsed JSON
                 yield json.dumps({
                     'type': 'result',
-                    'conversation_id': thread_id,
+                    'conversation_id': response_id,
                     'data': parsed_json,
                     'products_analyzed': len(products)
                 })
                 return
 
             except Exception as e:
+                print(f"DEBUG: Error in find_replacement_chunk_streaming (attempt {attempt + 1}): {e}")
                 if attempt < self.max_retries - 1:
                     time.sleep(self.retry_delay)
                     continue
