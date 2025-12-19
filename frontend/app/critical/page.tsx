@@ -297,10 +297,11 @@ export default function CriticalPage() {
     setError('');
     try {
       // Export all product fields including replacement fields
+      // Use products array which contains all fields including replacement data
       await exportExcelFile({
         cols: Array.from(FIELD_CONFIGS),
-        products: results.map((result: AnalysisResult) => ({
-          ...result,
+        products: products.map((product: Product) => ({
+          ...product,
           ...pickGeneralInfo
         }))
       });
@@ -416,7 +417,7 @@ export default function CriticalPage() {
         {generalInfo && <GeneralInfoComponent generalInfo={generalInfo} />}
 
         {/* Product List Display */}
-        {products.length > 0 && !isAnalyzed && (
+        {products.length > 0 && (
           <div className="mb-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-4">

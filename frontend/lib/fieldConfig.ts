@@ -71,6 +71,12 @@ export const CRITICAL_DEFAULT_VISIBLE_FIELDS = new Set([
   'ai_status',
   'notes_by_ai',
   'ai_confidence',
+  'recommended_replacement',
+  'replacement_manufacturer',
+  'replacement_price',
+  'replacement_currency',
+  'replacement_source_type',
+  'replacement_notes',
 ]);
 
 
