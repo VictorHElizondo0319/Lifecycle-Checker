@@ -24,6 +24,8 @@ export default function CriticalPage() {
   const abortControllerRef = useRef<(() => void) | null>(null);
   const [isAnalyzed, setIsAnalyzed] = useState(false);
   const [isLookingForReplacements, setIsLookingForReplacements] = useState(false);
+  const [filteredResults, setFilteredResults] = useState<AnalysisResult[]>([]);
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('');
 
   const normalize = useCallback((value?: string) => value?.trim().toUpperCase() || '', []);
   
@@ -92,6 +94,16 @@ export default function CriticalPage() {
   useEffect(() => {
     setFilteredProducts(products);
   }, [products]);
+
+  // Filter results by AI Status
+  useEffect(() => {
+    if (selectedStatusFilter) {
+      const filtered = results.filter((result) => result.ai_status === selectedStatusFilter);
+      setFilteredResults(filtered);
+    } else {
+      setFilteredResults([]); // Empty array means show all results
+    }
+  }, [results, selectedStatusFilter]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -311,23 +323,18 @@ export default function CriticalPage() {
     setProducts([]);
     setFilteredProducts([]);
     setResults([]);
+    setFilteredResults([]);
     setGeneralInfo(null);
     setError('');
     setProgress('');
     setVisibleFields(CRITICAL_DEFAULT_VISIBLE_FIELDS);
     setIsAnalyzed(false);
+    setSelectedStatusFilter('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
-  const handleFindObsolete = () => {
-    const obsoleteProducts = products.filter((product) => {
-      const status = product.ai_status || '';
-      return status.includes('Obsolete') || status === '🔴 Obsolete';
-    });
-    setFilteredProducts(obsoleteProducts);
-  };
 
   const handleToggleField = (fieldKey: string) => {
     setVisibleFields((prev) => {
@@ -409,7 +416,7 @@ export default function CriticalPage() {
         {generalInfo && <GeneralInfoComponent generalInfo={generalInfo} />}
 
         {/* Product List Display */}
-        {products.length > 0 && (
+        {products.length > 0 && !isAnalyzed && (
           <div className="mb-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-4">
@@ -457,12 +464,30 @@ export default function CriticalPage() {
         )}
 
         {/* Analysis Results */}
-        {results.length > 0 && (
+        {results.length > 0  && (
           <div className="mb-6">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-800">
-                Analysis Results ({results.length})
-              </h2>
+              <div className="flex items-center gap-4">
+                <h2 className="text-lg font-semibold text-gray-800">
+                  Analysis Results ({selectedStatusFilter ? filteredResults.length : results.length} of {results.length})
+                </h2>
+                {/* AI Status Filter Dropdown */}
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-700">
+                    Filter by Status:
+                  </label>
+                  <select
+                    value={selectedStatusFilter}
+                    onChange={(e) => setSelectedStatusFilter(e.target.value)}
+                    className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="Active">Active</option>
+                    <option value="🔴 Obsolete">🔴 Obsolete</option>
+                    <option value="Review">Review</option>
+                  </select>
+                </div>
+              </div>
               <div className="flex items-center gap-4">
                 {analyzing && (
                   <button
@@ -474,12 +499,6 @@ export default function CriticalPage() {
                 )}
                 {isAnalyzed && (
                   <>
-                    <button
-                      onClick={handleFindObsolete}
-                      className="rounded-lg bg-gradient-to-r from-orange-600 to-red-600 px-6 py-2 text-white font-medium hover:from-orange-700 hover:to-red-700"
-                    >
-                      Find Obsolete
-                    </button>
                     <button
                       onClick={handleFindReplacements}
                       disabled={isLookingForReplacements}
@@ -523,7 +542,7 @@ export default function CriticalPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 bg-white">
-                  {results.map((result, index) => (
+                  {(selectedStatusFilter ? filteredResults : results).map((result, index) => (
                     <tr key={index} className="hover:bg-gray-50">
                       <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-900">
                         {index + 1}
