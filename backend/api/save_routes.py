@@ -118,6 +118,10 @@ def save_data():
             parts_saved = 0
             parts_updated = 0
             machine_parts_linked = 0
+            machine_parts_updated = 0
+            
+            # Track machine-part links we've processed in this transaction to avoid duplicates
+            processed_links = set()
             
             for product_data in products:
                 part_manufacturer = product_data.get('part_manufacturer') or product_data.get('manufacturer', '')
@@ -149,13 +153,33 @@ def save_data():
                 
                 # Step 3: Link part to machine if machine exists
                 if machine and part.id:
-                    # Check if link already exists
+                    # Create a unique key for this machine-part combination
+                    link_key = (machine.id, part.id)
+                    
+                    # Skip if we've already processed this link in this transaction
+                    if link_key in processed_links:
+                        continue
+                    
+                    # Check if link already exists in database
                     existing_link = session.query(MachinePart).filter(
                         MachinePart.machine_id == machine.id,
                         MachinePart.part_id == part.id
                     ).first()
                     
-                    if not existing_link:
+                    if existing_link:
+                        # Update existing link with new data
+                        qty_str = product_data.get('qty_on_machine', '1')
+                        try:
+                            qty = float(qty_str) if qty_str else 1.0
+                        except (ValueError, TypeError):
+                            qty = 1.0
+                        
+                        existing_link.quantity = qty
+                        existing_link.cspl_line_number = product_data.get('cspl_line_number') or existing_link.cspl_line_number
+                        existing_link.original_order = product_data.get('original_order') or existing_link.original_order
+                        existing_link.parent_folder = product_data.get('parent_folder') or existing_link.parent_folder
+                        machine_parts_updated += 1
+                    else:
                         # Create new link
                         qty_str = product_data.get('qty_on_machine', '1')
                         try:
@@ -173,6 +197,9 @@ def save_data():
                         )
                         session.add(machine_part)
                         machine_parts_linked += 1
+                    
+                    # Mark this link as processed
+                    processed_links.add(link_key)
             
             # Step 4: Create analysis log if requested
             log_id = None
@@ -206,6 +233,7 @@ def save_data():
                 "parts_saved": parts_saved,
                 "parts_updated": parts_updated,
                 "machine_parts_linked": machine_parts_linked,
+                "machine_parts_updated": machine_parts_updated,
                 "log_id": log_id
             })
             
