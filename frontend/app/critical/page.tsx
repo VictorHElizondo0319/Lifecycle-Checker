@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Product, AnalysisResult, GeneralInfo as GeneralInfoType } from '@/types';
-import { uploadExcelFile, analyzeProductsStream, findReplacementsStream, exportExcelFile } from '@/lib/api';
+import { uploadExcelFile, analyzeProductsStream, findReplacementsStream, exportExcelFile, saveData } from '@/lib/api';
 import Table from '@/components/Table';
 import FieldSelector from '@/components/FieldSelector';
 import FilterBar from '@/components/FilterBar';
@@ -18,6 +18,7 @@ export default function CriticalPage() {
   const [progress, setProgress] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [exporting, setExporting] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [visibleFields, setVisibleFields] = useState<Set<string>>(CRITICAL_DEFAULT_VISIBLE_FIELDS);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<(() => void) | null>(null);
@@ -279,6 +280,47 @@ export default function CriticalPage() {
       setExporting(false);
     }
   };
+
+  const handleSave = async () => {
+    if (products.length === 0) {
+      setError('Please upload an Excel file first');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const response = await saveData({
+        general_info: generalInfo ? {
+          eam_equipment_id: generalInfo.eam_equipment_id,
+          equipment_description: generalInfo.equipment_description,
+          alias: generalInfo.alias,
+          plant: generalInfo.plant,
+          group_responsible: generalInfo.group_responsible,
+          participating_associates: generalInfo.participating_associates
+        } : undefined,
+        products: products.map((product: Product) => ({
+          ...product,
+          ...pickGeneralInfo
+        })),
+        create_log: true
+      });
+      
+      if (response.success) {
+        setProgress(
+          `Data saved successfully! ` +
+          `${response.parts_saved} parts saved, ` +
+          `${response.parts_updated} parts updated, ` +
+          `${response.machine_parts_linked} machine-part links created.`
+        );
+      } else {
+        setError(response.error || 'Failed to save data');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save data');
+    } finally {
+      setSaving(false);
+    }
+  };
   const handleCancel = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current();
@@ -408,13 +450,22 @@ export default function CriticalPage() {
                   </button>
                 )}
                 {!isAnalyzed && (
-                  <button
-                    onClick={handleAnalyze}
-                    disabled={analyzing}
-                    className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {analyzing ? 'Analyzing...' : 'Analyze Products'}
-                  </button>
+                  <>
+                    <button
+                      onClick={handleAnalyze}
+                      disabled={analyzing}
+                      className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {analyzing ? 'Analyzing...' : 'Analyze Products'}
+                    </button>
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="rounded-lg bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-2 text-white font-medium hover:from-blue-700 hover:to-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {saving ? 'Saving...' : 'Save to Database'}
+                    </button>
+                  </>
                 )}
                 {isAnalyzed && (
                   <>
@@ -424,6 +475,13 @@ export default function CriticalPage() {
                       className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isLookingForReplacements ? 'Finding Replacements...' : 'Find Replacement Parts'}
+                    </button>
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="rounded-lg bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-2 text-white font-medium hover:from-blue-700 hover:to-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {saving ? 'Saving...' : 'Save to Database'}
                     </button>
                     <button
                       onClick={handleExportExcel}
