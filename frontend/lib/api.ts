@@ -208,3 +208,130 @@ export async function exportExcelFile({cols, products}: {cols: FieldConfig[], pr
   document.body.removeChild(link);
   window.URL.revokeObjectURL(url);
 }
+
+export interface SaveDataRequest {
+  general_info?: {
+    eam_equipment_id?: string;
+    equipment_description?: string;
+    alias?: string;
+    plant?: string;
+    group_responsible?: string;
+    participating_associates?: {
+      initiator?: { name?: string };
+    };
+  };
+  products: any[];
+  create_log?: boolean;
+}
+
+export interface SaveDataResponse {
+  success: boolean;
+  machine_id?: number | null;
+  parts_saved: number;
+  parts_updated: number;
+  machine_parts_linked: number;
+  log_id?: number | null;
+  error?: string;
+}
+
+export async function saveData(data: SaveDataRequest): Promise<SaveDataResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/save`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to save data' }));
+    throw new Error(error.error || 'Failed to save data');
+  }
+
+  return response.json();
+}
+
+export interface Part {
+  id: number;
+  part_manufacturer: string;
+  manufacturer_part_number: string;
+  part_description?: string;
+  ai_status?: string;
+  machines?: Array<{
+    id: number;
+    equipment_id: string;
+    equipment_alias?: string;
+    machine_description?: string;
+    plant?: string;
+    quantity: number;
+  }>;
+  [key: string]: any;
+}
+
+export interface GetPartsRequest {
+  ai_status?: string;
+  machine_id?: number;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetPartsResponse {
+  success: boolean;
+  parts: Part[];
+  total: number;
+  limit: number;
+  offset: number;
+  filters_applied: {
+    ai_status?: string | null;
+    machine_id?: number | null;
+    search?: string | null;
+  };
+  error?: string;
+}
+
+export interface Machine {
+  id: number;
+  equipment_id: string;
+  equipment_alias?: string;
+  machine_description?: string;
+  plant?: string;
+  group_responsibility?: string;
+  parts_count: number;
+}
+
+export interface GetMachinesResponse {
+  success: boolean;
+  machines: Machine[];
+  total: number;
+  error?: string;
+}
+
+export async function getParts(filters?: GetPartsRequest): Promise<GetPartsResponse> {
+  const params = new URLSearchParams();
+  if (filters?.ai_status) params.append('ai_status', filters.ai_status);
+  if (filters?.machine_id) params.append('machine_id', filters.machine_id.toString());
+  if (filters?.search) params.append('search', filters.search);
+  if (filters?.limit) params.append('limit', filters.limit.toString());
+  if (filters?.offset) params.append('offset', filters.offset.toString());
+
+  const response = await fetch(`${API_BASE_URL}/api/parts?${params.toString()}`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to fetch parts' }));
+    throw new Error(error.error || 'Failed to fetch parts');
+  }
+
+  return response.json();
+}
+
+export async function getMachines(): Promise<GetMachinesResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/parts/machines`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to fetch machines' }));
+    throw new Error(error.error || 'Failed to fetch machines');
+  }
+
+  return response.json();
+}

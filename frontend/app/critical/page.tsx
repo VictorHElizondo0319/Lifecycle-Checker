@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Product, AnalysisResult, GeneralInfo as GeneralInfoType } from '@/types';
-import { uploadExcelFile, analyzeProductsStream, findReplacementsStream, exportExcelFile } from '@/lib/api';
+import { uploadExcelFile, analyzeProductsStream, findReplacementsStream, exportExcelFile, saveData } from '@/lib/api';
 import Table from '@/components/Table';
 import FieldSelector from '@/components/FieldSelector';
 import FilterBar from '@/components/FilterBar';
@@ -12,20 +12,18 @@ import { FIELD_CONFIGS, CRITICAL_DEFAULT_VISIBLE_FIELDS } from '@/lib/fieldConfi
 export default function CriticalPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [results, setResults] = useState<AnalysisResult[]>([]);
   const [generalInfo, setGeneralInfo] = useState<GeneralInfoType | null>(null);
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [progress, setProgress] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [exporting, setExporting] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [visibleFields, setVisibleFields] = useState<Set<string>>(CRITICAL_DEFAULT_VISIBLE_FIELDS);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<(() => void) | null>(null);
   const [isAnalyzed, setIsAnalyzed] = useState(false);
   const [isLookingForReplacements, setIsLookingForReplacements] = useState(false);
-  const [filteredResults, setFilteredResults] = useState<AnalysisResult[]>([]);
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('');
 
   const normalize = useCallback((value?: string) => value?.trim().toUpperCase() || '', []);
   
@@ -37,22 +35,6 @@ export default function CriticalPage() {
     group_responsibility: generalInfo?.group_responsible,
     initiator: generalInfo?.participating_associates?.initiator?.name || ""
   }  
-  const mergeResultList = useCallback(
-    (existing: AnalysisResult[], incoming: AnalysisResult[]) => {
-      const merged = new Map<string, AnalysisResult>();
-      existing.forEach((item) => {
-        const key = `${normalize(item.manufacturer)}|${normalize(item.part_number)}`;
-        merged.set(key, item);
-      });
-      incoming.forEach((item) => {
-        const key = `${normalize(item.manufacturer)}|${normalize(item.part_number)}`;
-        merged.set(key, item);
-      });
-      return Array.from(merged.values());
-    },
-    [normalize]
-  );
-
   const mergeResultsIntoProducts = useCallback(
     (current: Product[], incoming: AnalysisResult[]) =>
       current.map((product) => {
@@ -91,19 +73,10 @@ export default function CriticalPage() {
     [normalize]
   );
 
-  useEffect(() => {
-    setFilteredProducts(products);
-  }, [products]);
-
-  // Filter results by AI Status
-  useEffect(() => {
-    if (selectedStatusFilter) {
-      const filtered = results.filter((result) => result.ai_status === selectedStatusFilter);
-      setFilteredResults(filtered);
-    } else {
-      setFilteredResults([]); // Empty array means show all results
-    }
-  }, [results, selectedStatusFilter]);
+  // Handle filtering - memoized callback to prevent infinite loops
+  const handleFilterChange = useCallback((filtered: Product[]) => {
+    setFilteredProducts(filtered);
+  }, []);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -113,7 +86,6 @@ export default function CriticalPage() {
     setError('');
     setProducts([]);
     setFilteredProducts([]);
-    setResults([]);
     setGeneralInfo(null);
 
     try {
@@ -143,7 +115,6 @@ export default function CriticalPage() {
     setIsAnalyzed(false);
     setAnalyzing(true);
     setError('');
-    setResults([]);
     setProgress('Starting analysis...');
 
     try {
@@ -157,10 +128,8 @@ export default function CriticalPage() {
           } else if (event.type === 'chunk_complete') {
             setProgress(`Completed chunk ${event.chunk}/${event.total_chunks}`);
           } else if (event.type === 'result' && event.data?.results) {
-            setResults((prev) => mergeResultList(prev, event.data.results));
             setProducts((prev) => mergeResultsIntoProducts(prev, event.data.results));
           } else if (event.type === 'complete' && event.results) {
-            setResults((prev) => mergeResultList(prev, event.results));
             setProducts((prev) => mergeResultsIntoProducts(prev, event.results));
             setProgress(`Analysis complete! Analyzed ${event.total_analyzed} products.`);
             setAnalyzing(false);
@@ -311,6 +280,47 @@ export default function CriticalPage() {
       setExporting(false);
     }
   };
+
+  const handleSave = async () => {
+    if (products.length === 0) {
+      setError('Please upload an Excel file first');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const response = await saveData({
+        general_info: generalInfo ? {
+          eam_equipment_id: generalInfo.eam_equipment_id,
+          equipment_description: generalInfo.equipment_description,
+          alias: generalInfo.alias,
+          plant: generalInfo.plant,
+          group_responsible: generalInfo.group_responsible,
+          participating_associates: generalInfo.participating_associates
+        } : undefined,
+        products: products.map((product: Product) => ({
+          ...product,
+          ...pickGeneralInfo
+        })),
+        create_log: true
+      });
+      
+      if (response.success) {
+        setProgress(
+          `Data saved successfully! ` +
+          `${response.parts_saved} parts saved, ` +
+          `${response.parts_updated} parts updated, ` +
+          `${response.machine_parts_linked} machine-part links created.`
+        );
+      } else {
+        setError(response.error || 'Failed to save data');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save data');
+    } finally {
+      setSaving(false);
+    }
+  };
   const handleCancel = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current();
@@ -323,14 +333,11 @@ export default function CriticalPage() {
   const handleReset = () => {
     setProducts([]);
     setFilteredProducts([]);
-    setResults([]);
-    setFilteredResults([]);
     setGeneralInfo(null);
     setError('');
     setProgress('');
     setVisibleFields(CRITICAL_DEFAULT_VISIBLE_FIELDS);
     setIsAnalyzed(false);
-    setSelectedStatusFilter('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -431,21 +438,64 @@ export default function CriticalPage() {
                   onSelectAll={handleSelectAllFields}
                   onDeselectAll={handleDeselectAllFields}
                 />
+                {/* AI Status Filter Dropdown */}
               </div>
               <div className="flex items-center gap-4">
-                {!isAnalyzed && (
+                {analyzing && (
                   <button
-                    onClick={handleAnalyze}
-                    disabled={analyzing}
-                    className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handleCancel}
+                    className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
                   >
-                    {analyzing ? 'Analyzing...' : 'Analyze Products'}
+                    Cancel
                   </button>
+                )}
+                {!isAnalyzed && (
+                  <>
+                    <button
+                      onClick={handleAnalyze}
+                      disabled={analyzing}
+                      className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {analyzing ? 'Analyzing...' : 'Analyze Products'}
+                    </button>
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="rounded-lg bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-2 text-white font-medium hover:from-blue-700 hover:to-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {saving ? 'Saving...' : 'Save to Database'}
+                    </button>
+                  </>
+                )}
+                {isAnalyzed && (
+                  <>
+                    <button
+                      onClick={handleFindReplacements}
+                      disabled={isLookingForReplacements}
+                      className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isLookingForReplacements ? 'Finding Replacements...' : 'Find Replacement Parts'}
+                    </button>
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="rounded-lg bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-2 text-white font-medium hover:from-blue-700 hover:to-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {saving ? 'Saving...' : 'Save to Database'}
+                    </button>
+                    <button
+                      onClick={handleExportExcel}
+                      disabled={exporting}
+                      className="rounded-lg bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-2 text-white font-medium hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {exporting ? 'Exporting...' : 'Export Excel'}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
 
-            <FilterBar products={products} onFilterChange={setFilteredProducts} />
+            <FilterBar products={products} onFilterChange={handleFilterChange} />
 
             <div>
               {filteredProducts.length > 0 ? (
@@ -464,137 +514,9 @@ export default function CriticalPage() {
           </div>
         )}
 
-        {/* Analysis Results */}
-        {results.length > 0  && (
-          <div className="mb-6">
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <h2 className="text-lg font-semibold text-gray-800">
-                  Analysis Results ({selectedStatusFilter ? filteredResults.length : results.length} of {results.length})
-                </h2>
-                {/* AI Status Filter Dropdown */}
-                <div className="flex items-center gap-2">
-                  <label className="text-sm font-medium text-gray-700">
-                    Filter by Status:
-                  </label>
-                  <select
-                    value={selectedStatusFilter}
-                    onChange={(e) => setSelectedStatusFilter(e.target.value)}
-                    className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="">All Statuses</option>
-                    <option value="Active">Active</option>
-                    <option value="🔴 Obsolete">🔴 Obsolete</option>
-                    <option value="Review">Review</option>
-                  </select>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                {analyzing && (
-                  <button
-                    onClick={handleCancel}
-                    className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-                  >
-                    Cancel
-                  </button>
-                )}
-                {isAnalyzed && (
-                  <>
-                    <button
-                      onClick={handleFindReplacements}
-                      disabled={isLookingForReplacements}
-                      className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isLookingForReplacements ? 'Finding Replacements...' : 'Find Replacement Parts'}
-                    </button>
-                    <button
-                      onClick={handleExportExcel}
-                      disabled={exporting}
-                      className="rounded-lg bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-2 text-white font-medium hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {exporting ? 'Exporting...' : 'Export Analyze Result'}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-            <div className="overflow-x-auto rounded-lg border border-gray-200">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-700">
-                      No
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-700">
-                      Manufacturer
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-700">
-                      Part Number
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-700">
-                      AI Status
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-700">
-                      Notes by AI
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-700">
-                      AI Confidence
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 bg-white">
-                  {(selectedStatusFilter ? filteredResults : results).map((result, index) => (
-                    <tr key={index} className="hover:bg-gray-50">
-                      <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-900">
-                        {index + 1}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-900">
-                        {result.manufacturer}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-900">
-                        {result.part_number}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-sm">
-                        <span
-                          className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
-                            result.ai_status === 'Active'
-                              ? 'bg-green-100 text-green-800'
-                              : result.ai_status === '🔴 Obsolete'
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-yellow-100 text-yellow-800'
-                          }`}
-                        >
-                          {result.ai_status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900 max-w-md">
-                        <div className="max-h-32 overflow-y-auto">
-                          {result.notes_by_ai}
-                        </div>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-sm">
-                        <span
-                          className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
-                            result.ai_confidence === 'High'
-                              ? 'bg-green-100 text-green-800'
-                              : result.ai_confidence === 'Medium'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}
-                        >
-                          {result.ai_confidence}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
 
         {/* Empty State */}
-        {products.length === 0 && results.length === 0 && !loading && (
+        {products.length === 0 && !loading && (
           <div className="rounded-lg border-2 border-dashed border-gray-300 p-12 text-center">
             <p className="text-gray-500">
               Upload an Excel file (.xlsx or .xls) to get started.

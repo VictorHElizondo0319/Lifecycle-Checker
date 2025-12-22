@@ -72,6 +72,16 @@ export default function Sidebar() {
         >
           Raw Data
         </Link>
+        <Link
+          href="/parts"
+          className={`block w-full rounded-lg px-4 py-3 text-left text-sm font-medium transition-colors ${
+            isActive('/parts')
+              ? 'bg-purple-100 text-purple-700 border-2 border-purple-300'
+              : 'bg-gray-50 text-gray-700 border-2 border-transparent hover:bg-gray-100'
+          }`}
+        >
+          All Parts
+        </Link>
       </div>
     </div>
   );
