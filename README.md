@@ -11,8 +11,35 @@ Lifecycle-Checker/
 │   ├── api/          # API routes
 │   ├── services/     # Business logic services
 │   └── app.py        # Main Flask application
+├── app/               # Electron desktop application
+│   ├── main.js       # Electron main process
+│   ├── preload.js    # Preload script
+│   └── package.json  # Electron configuration
 └── README.md
 ```
+
+## Application Versions
+
+This project provides two ways to run the application:
+
+1. **Web Application** - Run backend and frontend separately (see setup below)
+2. **Desktop Application** - Electron app that bundles everything (see `app/` directory)
+
+### Desktop Application (Electron)
+
+For a standalone desktop application, see the `app/` directory:
+
+```bash
+cd app
+npm install
+npm start
+```
+
+See `app/README.md` and `app/SETUP.md` for detailed instructions.
+
+### Web Application
+
+For running as separate web services:
 
 ## Features
 

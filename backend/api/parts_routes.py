@@ -283,3 +283,114 @@ def _part_to_dict(part: Part) -> Dict[str, Any]:
         "updated_at": part.updated_at.isoformat() if part.updated_at else None
     }
 
+
+@parts_bp.route('/parts/update', methods=['POST'])
+def update_parts():
+    """
+    Update parts with replacement information
+    POST /api/parts/update
+    
+    Request:
+        {
+            "parts": [
+                {
+                    "id": 1,
+                    "recommended_replacement": "...",
+                    "replacement_manufacturer": "...",
+                    "replacement_price": 100.0,
+                    "replacement_currency": "USD",
+                    "replacement_source_type": "...",
+                    "replacement_source_url": "...",
+                    "replacement_notes": "...",
+                    "replacement_confidence": "..."
+                },
+                ...
+            ]
+        }
+    
+    Response:
+        {
+            "success": true,
+            "updated": 5,
+            "errors": []
+        }
+    """
+    if not DB_AVAILABLE:
+        return jsonify({
+            "success": False,
+            "error": "Database not available. Please check database configuration."
+        }), 503
+    
+    try:
+        data = request.json or {}
+        parts_data = data.get('parts', [])
+        
+        if not parts_data:
+            return jsonify({
+                "success": False,
+                "error": "No parts provided"
+            }), 400
+        
+        if not isinstance(parts_data, list):
+            return jsonify({
+                "success": False,
+                "error": "Parts must be a list"
+            }), 400
+        
+        session = get_db_session()
+        updated_count = 0
+        errors = []
+        
+        try:
+            for part_data in parts_data:
+                part_id = part_data.get('id')
+                if not part_id:
+                    errors.append(f"Part missing 'id' field: {part_data}")
+                    continue
+                
+                # Find the part
+                part = session.query(Part).filter(Part.id == part_id).first()
+                if not part:
+                    errors.append(f"Part with id {part_id} not found")
+                    continue
+                
+                # Update replacement fields
+                if 'recommended_replacement' in part_data:
+                    part.recommended_replacement = part_data.get('recommended_replacement')
+                if 'replacement_manufacturer' in part_data:
+                    part.replacement_manufacturer = part_data.get('replacement_manufacturer')
+                if 'replacement_price' in part_data:
+                    part.replacement_price = part_data.get('replacement_price')
+                if 'replacement_currency' in part_data:
+                    part.replacement_currency = part_data.get('replacement_currency')
+                if 'replacement_source_type' in part_data:
+                    part.replacement_source_type = part_data.get('replacement_source_type')
+                if 'replacement_source_url' in part_data:
+                    part.replacement_source_url = part_data.get('replacement_source_url')
+                if 'replacement_notes' in part_data:
+                    part.replacement_notes = part_data.get('replacement_notes')
+                if 'replacement_confidence' in part_data:
+                    part.replacement_confidence = part_data.get('replacement_confidence')
+                
+                updated_count += 1
+            
+            session.commit()
+            
+            return jsonify({
+                "success": True,
+                "updated": updated_count,
+                "errors": errors
+            })
+            
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+            
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+

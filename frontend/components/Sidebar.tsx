@@ -1,7 +1,9 @@
 'use client';
 
+import {useSafeRouter} from '@/hooks/useSafeRouter';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import AzureStatus from './AzureStatus';
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -9,6 +11,17 @@ export default function Sidebar() {
   const isActive = (path: string) => {
     return pathname === path || pathname?.startsWith(path + '/');
   };
+
+  const pages = [
+    {
+      label: "Critical Separate Parts",
+      path: useSafeRouter("critical")
+    },
+    {
+      label: "All Parts",
+      path: useSafeRouter("parts")
+    }
+  ]
 
   return (
     <div className="flex h-screen w-64 flex-col border-r border-gray-200 bg-white">
@@ -49,40 +62,26 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
-
       {/* Navigation Buttons */}
       <div className="flex-1 space-y-2 p-4">
-        <Link
-          href="/critical"
+        {pages.map((page) => (
+          <Link href={page.path} 
           className={`block w-full rounded-lg px-4 py-3 text-left text-sm font-medium transition-colors ${
-            isActive('/critical')
+            isActive(page.path)
               ? 'bg-purple-100 text-purple-700 border-2 border-purple-300'
               : 'bg-gray-50 text-gray-700 border-2 border-transparent hover:bg-gray-100'
           }`}
-        >
-          Critical Separate Parts
-        </Link>
-        <Link
-          href="/raw-data"
-          className={`block w-full rounded-lg px-4 py-3 text-left text-sm font-medium transition-colors ${
-            isActive('/raw-data')
-              ? 'bg-purple-100 text-purple-700 border-2 border-purple-300'
-              : 'bg-gray-50 text-gray-700 border-2 border-transparent hover:bg-gray-100'
-          }`}
-        >
-          Raw Data
-        </Link>
-        <Link
-          href="/parts"
-          className={`block w-full rounded-lg px-4 py-3 text-left text-sm font-medium transition-colors ${
-            isActive('/parts')
-              ? 'bg-purple-100 text-purple-700 border-2 border-purple-300'
-              : 'bg-gray-50 text-gray-700 border-2 border-transparent hover:bg-gray-100'
-          }`}
-        >
-          All Parts
-        </Link>
+          key={page.path}>
+            {page.label}
+          </Link>
+        ))}
+      </div>
+
+      {/* Azure Status Section */}
+      <div className="border-t border-gray-200 p-4">
+        <AzureStatus />
       </div>
     </div>
   );
 }
+
