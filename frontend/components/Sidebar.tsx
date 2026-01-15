@@ -3,6 +3,7 @@
 import {useSafeRouter} from '@/hooks/useSafeRouter';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import AzureStatus from './AzureStatus';
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -74,7 +75,11 @@ export default function Sidebar() {
             {page.label}
           </Link>
         ))}
+      </div>
 
+      {/* Azure Status Section */}
+      <div className="border-t border-gray-200 p-4">
+        <AzureStatus />
       </div>
     </div>
   );

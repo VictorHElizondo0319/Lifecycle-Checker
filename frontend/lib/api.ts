@@ -373,3 +373,90 @@ export async function updateParts(data: UpdatePartsRequest): Promise<UpdateParts
 
   return response.json();
 }
+
+// Azure Authentication APIs
+export interface AzureStatusResponse {
+  success: boolean;
+  logged_in: boolean;
+  account?: {
+    id: string;
+    name: string;
+    tenantId: string;
+    isDefault: boolean;
+  };
+  subscription?: {
+    id: string;
+    name: string;
+    state: string;
+    tenantId?: string;
+  };
+  error?: string;
+}
+
+export interface AzureSubscription {
+  id: string;
+  name: string;
+  state: string;
+  tenantId: string;
+  isDefault: boolean;
+}
+
+export interface AzureSubscriptionsResponse {
+  success: boolean;
+  subscriptions: AzureSubscription[];
+  error?: string;
+}
+
+export interface SetSubscriptionRequest {
+  subscription_id?: string;
+  subscription_name?: string;
+}
+
+export interface SetSubscriptionResponse {
+  success: boolean;
+  message: string;
+  subscription?: {
+    id: string;
+    name: string;
+  };
+  error?: string;
+}
+
+export async function getAzureStatus(): Promise<AzureStatusResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/azure/status`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to check Azure status' }));
+    throw new Error(error.error || 'Failed to check Azure status');
+  }
+
+  return response.json();
+}
+
+export async function getAzureSubscriptions(): Promise<AzureSubscriptionsResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/azure/subscriptions`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to fetch subscriptions' }));
+    throw new Error(error.error || 'Failed to fetch subscriptions');
+  }
+
+  return response.json();
+}
+
+export async function setAzureSubscription(data: SetSubscriptionRequest): Promise<SetSubscriptionResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/azure/subscription/set`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to set subscription' }));
+    throw new Error(error.error || 'Failed to set subscription');
+  }
+
+  return response.json();
+}

@@ -81,11 +81,13 @@ from api.excel_routes import excel_bp
 from api.analyze_routes import analyze_bp
 from api.save_routes import save_bp
 from api.parts_routes import parts_bp
+from api.azure_routes import azure_bp
 
 app.register_blueprint(excel_bp, url_prefix='/api/excel')
 app.register_blueprint(analyze_bp, url_prefix='/api')
 app.register_blueprint(save_bp, url_prefix='/api')
 app.register_blueprint(parts_bp, url_prefix='/api')
+app.register_blueprint(azure_bp, url_prefix='/api/azure')
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
