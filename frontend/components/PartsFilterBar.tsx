@@ -167,7 +167,7 @@ export default function PartsFilterBar({ parts, machines, onFilterChange }: Part
             <option value="">All Machines</option>
             {machines.map((machine) => (
               <option key={machine.id} value={machine.id.toString()}>
-                {machine.equipment_alias || machine.equipment_id} ({machine.parts_count} parts)
+                {machine.equipment_id} {machine.equipment_alias ? `(${machine.equipment_alias})` : ''} ({machine.parts_count} parts)
               </option>
             ))}
           </select>

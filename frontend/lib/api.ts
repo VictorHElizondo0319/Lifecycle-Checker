@@ -335,3 +335,41 @@ export async function getMachines(): Promise<GetMachinesResponse> {
 
   return response.json();
 }
+
+export interface UpdatePartsRequest {
+  parts: Array<{
+    id: number;
+    recommended_replacement?: string;
+    replacement_manufacturer?: string;
+    replacement_price?: number | null;
+    replacement_currency?: string | null;
+    replacement_source_type?: string;
+    replacement_source_url?: string;
+    replacement_notes?: string;
+    replacement_confidence?: string;
+  }>;
+}
+
+export interface UpdatePartsResponse {
+  success: boolean;
+  updated: number;
+  errors: string[];
+  error?: string;
+}
+
+export async function updateParts(data: UpdatePartsRequest): Promise<UpdatePartsResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/parts/update`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to update parts' }));
+    throw new Error(error.error || 'Failed to update parts');
+  }
+
+  return response.json();
+}
