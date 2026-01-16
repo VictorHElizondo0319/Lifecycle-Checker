@@ -16,9 +16,26 @@ from typing import List, Dict, Any
 
 analyze_bp = Blueprint('analyze', __name__)
 ai_service = AIService()
-azure_ai_service = AzureAIService()
+azure_ai_service = None  # Lazy initialization to avoid startup crashes
 
 CHUNK_SIZE = 10
+
+def get_azure_ai_service():
+    """
+    Get or create AzureAIService instance with lazy initialization.
+    This prevents DefaultAzureCredential from being called at import time.
+    """
+    global azure_ai_service
+    if azure_ai_service is None:
+        try:
+            azure_ai_service = AzureAIService()
+        except Exception as e:
+            # If Azure credentials are not available, return None
+            # The calling code should handle this gracefully
+            print(f"Warning: Could not initialize AzureAIService: {e}")
+            print("Azure AI features will be unavailable until Azure login is completed.")
+            return None
+    return azure_ai_service
 @analyze_bp.route('/analyze', methods=['POST'])
 def analyze_products():
     """
@@ -139,7 +156,14 @@ def _stream_analysis(products: List[Dict[str, Any]]):
         
         service_type = "azure"
 
-        analyze_service = azure_ai_service if service_type == "azure" else ai_service
+        # Get Azure AI service lazily (only when needed)
+        if service_type == "azure":
+            analyze_service = get_azure_ai_service()
+            if analyze_service is None:
+                # Fallback to regular AI service if Azure is not available
+                analyze_service = ai_service
+        else:
+            analyze_service = ai_service
 
         # Process chunks sequentially for streaming (can be parallelized with more complex logic)
         for idx, chunk in enumerate(chunks):
@@ -240,7 +264,14 @@ def _stream_find_replacements(products: List[Dict[str, Any]]):
         
         # Use Azure AI service for finding replacements
         service_type = "azure"
-        replacement_service = azure_ai_service if service_type == "azure" else ai_service
+        # Get Azure AI service lazily (only when needed)
+        if service_type == "azure":
+            replacement_service = get_azure_ai_service()
+            if replacement_service is None:
+                # Fallback to regular AI service if Azure is not available
+                replacement_service = ai_service
+        else:
+            replacement_service = ai_service
         
         # Process chunks sequentially for streaming
         for idx, chunk in enumerate(chunks):

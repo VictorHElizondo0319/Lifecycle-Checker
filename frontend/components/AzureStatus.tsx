@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getAzureStatus, getAzureSubscriptions, setAzureSubscription, AzureStatusResponse, AzureSubscription } from '@/lib/api';
+import { getAzureStatus, getAzureSubscriptions, setAzureSubscription, loginAzure, AzureStatusResponse, AzureSubscription } from '@/lib/api';
 
 const STORAGE_KEY_STATUS = 'azure_status';
 const STORAGE_KEY_SUBSCRIPTIONS = 'azure_subscriptions';
@@ -57,6 +57,7 @@ export default function AzureStatus() {
   const [refreshing, setRefreshing] = useState(false);
   const [showSubscriptions, setShowSubscriptions] = useState(false);
   const [selectingSubscription, setSelectingSubscription] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
 
   // Save to localStorage whenever status changes
   useEffect(() => {
@@ -101,6 +102,51 @@ export default function AzureStatus() {
     setRefreshing(true);
     await fetchStatus();
     setRefreshing(false);
+  };
+
+  const handleLogin = async () => {
+    try {
+      setLoggingIn(true);
+      const result = await loginAzure();
+      
+      if (result.success) {
+        // Show message that browser window should open
+        alert(result.message || 'Login process started. Please complete authentication in the browser window.');
+        
+        // Poll for login status every 2 seconds
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusData = await getAzureStatus();
+            if (statusData.logged_in) {
+              clearInterval(pollInterval);
+              setStatus(statusData);
+              setLoggingIn(false);
+              
+              // Fetch subscriptions if logged in
+              if (statusData.logged_in) {
+                const subsData = await getAzureSubscriptions();
+                setSubscriptions(subsData.subscriptions);
+              }
+            }
+          } catch (error) {
+            // Continue polling
+            console.log('Polling for login status...');
+          }
+        }, 2000);
+        
+        // Stop polling after 5 minutes
+        setTimeout(() => {
+          clearInterval(pollInterval);
+          setLoggingIn(false);
+        }, 5 * 60 * 1000);
+      } else {
+        throw new Error(result.error || 'Failed to start login');
+      }
+    } catch (error) {
+      console.error('Failed to login:', error);
+      alert(error instanceof Error ? error.message : 'Failed to start Azure login');
+      setLoggingIn(false);
+    }
   };
 
   const handleChangeSubscription = async () => {
@@ -194,9 +240,23 @@ export default function AzureStatus() {
           <p className="text-xs text-red-600">
             Not logged in to Azure CLI
           </p>
-          <p className="text-xs text-gray-500">
-            Run <code className="bg-gray-100 px-1 py-0.5 rounded">az login</code> in your terminal
+          <p className="text-xs text-gray-500 mb-2">
+            Click the button below to login to Azure. A browser window will open for authentication.
           </p>
+          <button
+            onClick={handleLogin}
+            disabled={loggingIn}
+            className="w-full rounded bg-purple-600 px-3 py-2 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {loggingIn ? (
+              <>
+                <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                <span>Logging in...</span>
+              </>
+            ) : (
+              <span>Login to Azure</span>
+            )}
+          </button>
           {status?.error && (
             <p className="text-xs text-red-500 mt-1">
               Error: {status.error}
