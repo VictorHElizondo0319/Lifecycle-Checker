@@ -1,25 +1,38 @@
 'use client';
 
-import {useSafeRouter} from '@/hooks/useSafeRouter';
+import {useSafeRouter, useSafePathname, isStaticExport} from '@/hooks/useSafeRouter';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import AzureStatus from './AzureStatus';
 
 export default function Sidebar() {
-  const pathname = usePathname();
+  const pathname = useSafePathname();
+  const isStatic = isStaticExport();
 
-  const isActive = (path: string) => {
-    return pathname === path || pathname?.startsWith(path + '/');
+  const isActive = (path: string, pageKey: string) => {
+    if (isStatic) {
+      // In Electron mode, paths are like "critical.html" or "/critical.html"
+      // Extract the page name from both current pathname and target path
+      const currentPage = pathname.replace(/^\//, '').replace(/\.html$/, '') || 'critical';
+      const targetPage = path.replace(/^\//, '').replace(/\.html$/, '') || pageKey;
+      
+      // Also check the pageKey directly
+      return currentPage === targetPage || currentPage === pageKey;
+    } else {
+      // In web mode, use standard Next.js pathname matching
+      return pathname === path || pathname?.startsWith(path + '/');
+    }
   };
 
   const pages = [
     {
       label: "Critical Separate Parts",
-      path: useSafeRouter("critical")
+      path: useSafeRouter("critical"),
+      key: "critical"
     },
     {
       label: "All Parts",
-      path: useSafeRouter("parts")
+      path: useSafeRouter("parts"),
+      key: "parts"
     }
   ]
 
@@ -64,17 +77,20 @@ export default function Sidebar() {
       </div>
       {/* Navigation Buttons */}
       <div className="flex-1 space-y-2 p-4">
-        {pages.map((page) => (
-          <Link href={page.path} 
-          className={`block w-full rounded-lg px-4 py-3 text-left text-sm font-medium transition-colors ${
-            isActive(page.path)
-              ? 'bg-purple-100 text-purple-700 border-2 border-purple-300'
-              : 'bg-gray-50 text-gray-700 border-2 border-transparent hover:bg-gray-100'
-          }`}
-          key={page.path}>
-            {page.label}
-          </Link>
-        ))}
+        {pages.map((page) => {
+          const active = isActive(page.path, page.key);
+          return (
+            <Link href={page.path} 
+            className={`block w-full rounded-lg px-4 py-3 text-left text-sm font-medium transition-colors ${
+              active
+                ? 'bg-purple-100 text-purple-700 border-2 border-purple-300'
+                : 'bg-gray-50 text-gray-700 border-2 border-transparent hover:bg-gray-100'
+            }`}
+            key={page.key || page.path}>
+              {page.label}
+            </Link>
+          );
+        })}
       </div>
 
       {/* Azure Status Section */}

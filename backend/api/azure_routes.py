@@ -53,6 +53,7 @@ def run_az_command(command: list) -> Tuple[dict, int]:
         result = subprocess.run(
             command,
             capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
             text=True,
             timeout=10
         )
