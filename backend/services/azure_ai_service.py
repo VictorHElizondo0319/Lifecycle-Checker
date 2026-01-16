@@ -25,18 +25,38 @@ class AzureAIService:
         if not agent_name:
             raise RuntimeError("AZURE_AI_AGENT is not set")
 
-        self.project = AIProjectClient(
-            credential=DefaultAzureCredential(),
-            endpoint=endpoint,
-        )
+        # Try to initialize Azure credentials - handle errors gracefully
+        try:
+            credential = DefaultAzureCredential()
+        except Exception as e:
+            # If DefaultAzureCredential fails, provide a helpful error message
+            error_msg = (
+                f"Failed to initialize Azure credentials: {str(e)}\n"
+                "Please ensure you are logged in to Azure CLI using 'az login'.\n"
+                "The application will continue but Azure AI features will be unavailable."
+            )
+            raise RuntimeError(error_msg) from e
 
-        # Get OpenAI client from project client
-        self.openai_client = self.project.get_openai_client()
+        try:
+            self.project = AIProjectClient(
+                credential=credential,
+                endpoint=endpoint,
+            )
 
-        # Agent identifier configured in env
-        self.agent = self.project.agents.get(agent_name=agent_name)
-        self.agent_name = agent_name
-        self.system_prompt = SYSTEM_PROMPT
+            # Get OpenAI client from project client
+            self.openai_client = self.project.get_openai_client()
+
+            # Agent identifier configured in env
+            self.agent = self.project.agents.get(agent_name=agent_name)
+            self.agent_name = agent_name
+            self.system_prompt = SYSTEM_PROMPT
+        except Exception as e:
+            # If project/client initialization fails, provide helpful error
+            error_msg = (
+                f"Failed to initialize Azure AI Project Client: {str(e)}\n"
+                "Please check your Azure credentials and configuration."
+            )
+            raise RuntimeError(error_msg) from e
         
         # Replacement agent (optional, falls back to main agent if not set)
         if replacement_agent_name:

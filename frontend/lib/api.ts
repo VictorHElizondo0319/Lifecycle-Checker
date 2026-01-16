@@ -422,6 +422,30 @@ export interface SetSubscriptionResponse {
   error?: string;
 }
 
+export interface AzureLoginResponse {
+  success: boolean;
+  message: string;
+  status?: string;
+  process_id?: number;
+  error?: string;
+}
+
+export async function loginAzure(): Promise<AzureLoginResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/azure/login`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to start Azure login' }));
+    throw new Error(error.error || 'Failed to start Azure login');
+  }
+
+  return response.json();
+}
+
 export async function getAzureStatus(): Promise<AzureStatusResponse> {
   const response = await fetch(`${API_BASE_URL}/api/azure/status`);
 

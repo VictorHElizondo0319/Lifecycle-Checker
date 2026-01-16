@@ -89,6 +89,109 @@ def run_az_command(command: list) -> Tuple[dict, int]:
         }, 500
 
 
+@azure_bp.route('/login', methods=['POST'])
+def login_azure():
+    """
+    Initiate Azure CLI login
+    POST /api/azure/login
+    
+    Response:
+        {
+            "success": true,
+            "message": "Login process started. Please complete authentication in the browser window.",
+            "status": "in_progress"
+        }
+    """
+    try:
+        # Run az login - this will open a browser window for authentication
+        # Use Popen instead of run to allow it to run in background
+        az_path = get_az_command_path()
+        
+        # Verify Azure CLI exists before attempting to run
+        if not os.path.exists(az_path) and az_path != 'az':
+            return jsonify({
+                "success": False,
+                "error": f"Azure CLI not found at {az_path}. Please ensure Azure CLI is installed."
+            }), 503
+        
+        # Start the login process in a way that won't block or crash the server
+        # Use shell=False to prevent command injection, but handle errors gracefully
+        try:
+            # On Windows, we need to handle the process differently
+            if platform.system() == 'Windows':
+                # Use DETACHED_PROCESS to prevent the process from blocking
+                # CREATE_NEW_CONSOLE allows the browser to open properly
+                process = subprocess.Popen(
+                    [az_path, 'login'],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_CONSOLE,
+                    text=True
+                )
+            else:
+                # On Unix-like systems, use standard approach
+                process = subprocess.Popen(
+                    [az_path, 'login'],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    start_new_session=True,
+                    text=True
+                )
+            
+            # Verify process started successfully
+            if process.poll() is None:  # Process is still running
+                return jsonify({
+                    "success": True,
+                    "message": "Login process started. Please complete authentication in the browser window that opened.",
+                    "status": "in_progress",
+                    "process_id": process.pid
+                }), 200
+            else:
+                # Process exited immediately (error)
+                return jsonify({
+                    "success": False,
+                    "error": "Login process failed to start. Please check if Azure CLI is properly installed and configured."
+                }), 500
+                
+        except OSError as e:
+            # Handle OS-level errors (file not found, permission denied, etc.)
+            error_msg = str(e)
+            if "No such file or directory" in error_msg or "cannot find the file" in error_msg.lower():
+                return jsonify({
+                    "success": False,
+                    "error": "Azure CLI not found. Please ensure Azure CLI is installed and accessible."
+                }), 503
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": f"Failed to start login process: {error_msg}"
+                }), 500
+        
+    except FileNotFoundError:
+        return jsonify({
+            "success": False,
+            "error": "Azure CLI not found. Please ensure Azure CLI is installed."
+        }), 503
+    except ValueError as e:
+        # Handle invalid arguments
+        return jsonify({
+            "success": False,
+            "error": f"Invalid configuration: {str(e)}"
+        }), 400
+    except Exception as e:
+        # Catch all other exceptions to prevent server crash
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Error in login_azure: {error_trace}")
+        
+        return jsonify({
+            "success": False,
+            "error": f"An error occurred while starting login: {str(e)}"
+        }), 500
+
+
 @azure_bp.route('/status', methods=['GET'])
 def check_azure_status():
     """
