@@ -3,13 +3,72 @@
 import { useState, useEffect } from 'react';
 import { getAzureStatus, getAzureSubscriptions, setAzureSubscription, AzureStatusResponse, AzureSubscription } from '@/lib/api';
 
+const STORAGE_KEY_STATUS = 'azure_status';
+const STORAGE_KEY_SUBSCRIPTIONS = 'azure_subscriptions';
+
+// Helper functions for localStorage
+const loadStatusFromStorage = (): AzureStatusResponse | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_STATUS);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveStatusToStorage = (status: AzureStatusResponse | null) => {
+  if (typeof window === 'undefined') return;
+  try {
+    if (status) {
+      localStorage.setItem(STORAGE_KEY_STATUS, JSON.stringify(status));
+    } else {
+      localStorage.removeItem(STORAGE_KEY_STATUS);
+    }
+  } catch (error) {
+    console.error('Failed to save status to localStorage:', error);
+  }
+};
+
+const loadSubscriptionsFromStorage = (): AzureSubscription[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_SUBSCRIPTIONS);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveSubscriptionsToStorage = (subscriptions: AzureSubscription[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(STORAGE_KEY_SUBSCRIPTIONS, JSON.stringify(subscriptions));
+  } catch (error) {
+    console.error('Failed to save subscriptions to localStorage:', error);
+  }
+};
+
 export default function AzureStatus() {
-  const [status, setStatus] = useState<AzureStatusResponse | null>(null);
-  const [subscriptions, setSubscriptions] = useState<AzureSubscription[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Initialize from localStorage if available (for Electron persistence)
+  const [status, setStatus] = useState<AzureStatusResponse | null>(() => loadStatusFromStorage());
+  const [subscriptions, setSubscriptions] = useState<AzureSubscription[]>(() => loadSubscriptionsFromStorage());
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showSubscriptions, setShowSubscriptions] = useState(false);
   const [selectingSubscription, setSelectingSubscription] = useState(false);
+
+  // Save to localStorage whenever status changes
+  useEffect(() => {
+    saveStatusToStorage(status);
+  }, [status]);
+
+  // Save to localStorage whenever subscriptions change
+  useEffect(() => {
+    if (subscriptions.length > 0) {
+      saveSubscriptionsToStorage(subscriptions);
+    }
+  }, [subscriptions]);
 
   const fetchStatus = async () => {
     try {
@@ -20,14 +79,19 @@ export default function AzureStatus() {
       if (statusData.logged_in) {
         const subsData = await getAzureSubscriptions();
         setSubscriptions(subsData.subscriptions);
+      } else {
+        // Clear subscriptions if not logged in
+        setSubscriptions([]);
       }
     } catch (error) {
       console.error('Failed to fetch Azure status:', error);
-      setStatus({
+      const errorStatus: AzureStatusResponse = {
         success: false,
         logged_in: false,
         error: error instanceof Error ? error.message : 'Failed to fetch Azure status'
-      });
+      };
+      setStatus(errorStatus);
+      setSubscriptions([]);
     } finally {
       setLoading(false);
     }
@@ -39,9 +103,23 @@ export default function AzureStatus() {
     setRefreshing(false);
   };
 
-  useEffect(() => {
-    fetchStatus();
-  }, []);
+  const handleChangeSubscription = async () => {
+    if (!showSubscriptions) {
+      // When opening subscriptions, fetch status if not already loaded
+      if (!status) {
+        await fetchStatus();
+      } else if (status.logged_in && subscriptions.length === 0) {
+        // If logged in but subscriptions not loaded, fetch them
+        try {
+          const subsData = await getAzureSubscriptions();
+          setSubscriptions(subsData.subscriptions);
+        } catch (error) {
+          console.error('Failed to fetch subscriptions:', error);
+        }
+      }
+    }
+    setShowSubscriptions(!showSubscriptions);
+  };
 
   const handleSetSubscription = async (subscriptionId: string) => {
     try {
@@ -57,6 +135,18 @@ export default function AzureStatus() {
     }
   };
 
+  // Clear stored data (useful for debugging or logout)
+  const clearStoredData = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEY_STATUS);
+      localStorage.removeItem(STORAGE_KEY_SUBSCRIPTIONS);
+    }
+  };
+
+  const isLoggedIn = status?.logged_in ?? false;
+  const currentSubscription = status?.subscription;
+  const hasNotChecked = status === null;
+
   if (loading) {
     return (
       <div className="rounded-lg border border-gray-200 bg-white p-4">
@@ -68,19 +158,18 @@ export default function AzureStatus() {
     );
   }
 
-  const isLoggedIn = status?.logged_in ?? false;
-  const currentSubscription = status?.subscription;
-
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className={`h-3 w-3 rounded-full ${isLoggedIn ? 'bg-green-500' : 'bg-red-500'}`}></div>
+          <div className={`h-3 w-3 rounded-full ${
+            hasNotChecked ? 'bg-gray-400' : (isLoggedIn ? 'bg-green-500' : 'bg-red-500')
+          }`}></div>
           <h3 className="text-sm font-semibold text-gray-800">Azure Status</h3>
         </div>
         <button
           onClick={refreshStatus}
-          disabled={refreshing}
+          disabled={refreshing || loading}
           className="text-xs text-purple-600 hover:text-purple-700 disabled:opacity-50"
           title="Refresh status"
         >
@@ -88,7 +177,19 @@ export default function AzureStatus() {
         </button>
       </div>
 
-      {!isLoggedIn ? (
+      {hasNotChecked ? (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-600">
+            Click refresh to check Azure login status
+          </p>
+          <button
+            onClick={refreshStatus}
+            className="w-full rounded bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+          >
+            Check Status
+          </button>
+        </div>
+      ) : !isLoggedIn ? (
         <div className="space-y-2">
           <p className="text-xs text-red-600">
             Not logged in to Azure CLI
@@ -118,7 +219,7 @@ export default function AzureStatus() {
               <div className="flex items-center justify-between mb-1">
                 <p className="text-xs text-gray-600">Subscription</p>
                 <button
-                  onClick={() => setShowSubscriptions(!showSubscriptions)}
+                  onClick={handleChangeSubscription}
                   className="text-xs text-purple-600 hover:text-purple-700"
                 >
                   {showSubscriptions ? 'Hide' : 'Change'}
