@@ -81,8 +81,17 @@ def save_data():
         if not isinstance(products, list):
             return jsonify({"success": False, "error": "Products must be a list"}), 400
         
-        # Get database session
-        session = get_db_session()
+        # Get database session (will try to initialize if needed)
+        try:
+            session = get_db_session()
+        except RuntimeError as e:
+            return jsonify({
+                "success": False,
+                "error": str(e),
+                "parts_saved": 0,
+                "parts_updated": 0,
+                "machine_parts_linked": 0
+            }), 503
         
         try:
             # Step 1: Create or update Machine

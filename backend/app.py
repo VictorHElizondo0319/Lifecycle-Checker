@@ -21,13 +21,25 @@ db_initialized = False
 try:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from database.db_config import init_db
-    init_db()
-    db_initialized = True
-except ImportError:
-    print("Warning: Database module not found. Database features will be disabled.")
+    print("Attempting to initialize database...")
+    result = init_db()
+    if result:
+        db_initialized = True
+        print("[OK] Database initialized successfully!")
+    else:
+        db_initialized = False
+        print("[WARNING] Database initialization skipped - MySQL server not available or not configured.")
+        print("  Application will continue without database features.")
+except ImportError as e:
+    print(f"[WARNING] Warning: Database module not found: {e}")
+    print("  Database features will be disabled.")
+    db_initialized = False
 except Exception as e:
-    print(f"Warning: Could not initialize database: {e}")
-    print("Application will continue without database features.")
+    import traceback
+    print(f"[WARNING] Warning: Unexpected error during database initialization: {e}")
+    print(f"  Error details: {traceback.format_exc()}")
+    print("  Application will continue without database features.")
+    db_initialized = False
 
 
 @app.route('/health', methods=['GET'])

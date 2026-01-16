@@ -79,8 +79,23 @@ def get_all_parts():
         limit = int(request.args.get('limit', 1000))
         offset = int(request.args.get('offset', 0))
         
-        # Get database session
-        session = get_db_session()
+        # Get database session (will try to initialize if needed)
+        try:
+            session = get_db_session()
+        except RuntimeError as e:
+            return jsonify({
+                "success": False,
+                "error": str(e),
+                "parts": [],
+                "total": 0,
+                "limit": limit,
+                "offset": offset,
+                "filters_applied": {
+                    "ai_status": None,
+                    "machine_id": None,
+                    "search": None
+                }
+            }), 503
         
         try:
             # Start with base query
@@ -199,7 +214,16 @@ def get_all_machines():
         }), 503
     
     try:
-        session = get_db_session()
+        # Get database session (will try to initialize if needed)
+        try:
+            session = get_db_session()
+        except RuntimeError as e:
+            return jsonify({
+                "success": False,
+                "error": str(e),
+                "machines": [],
+                "total": 0
+            }), 503
         
         try:
             machines = session.query(Machine).all()
