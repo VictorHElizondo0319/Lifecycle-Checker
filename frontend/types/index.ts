@@ -24,10 +24,10 @@ export interface Product {
   notes: string;
   part_number_ai_modified: string;
   manufacturer: string;
-  ai_status: string;
-  notes_by_ai: string;
-  ai_confidence: string;
-  ai_confidence_confirmed: string;
+  ai_status?: string | null;
+  notes_by_ai?: string | null;
+  ai_confidence?: string | null;
+  ai_confidence_confirmed?: string | null;
   will_notes: string;
   nejat_notes: string;
   kc_notes: string;

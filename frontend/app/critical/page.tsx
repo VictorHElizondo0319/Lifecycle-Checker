@@ -60,13 +60,31 @@ export default function CriticalPage() {
           return manufacturerMatches && partMatches;
         });
 
-        if (!match) return product;
+        // If no match found, check if this product should be skipped (missing/no stocking_decision)
+        if (!match) {
+          const stockingDecision = (product.stocking_decision || '').trim().toLowerCase();
+          const shouldSkip = !stockingDecision || stockingDecision === 'no';
+          
+          // For skipped products, explicitly set AI fields to null/undefined
+          if (shouldSkip) {
+            return {
+              ...product,
+              ai_status: null,
+              notes_by_ai: null,
+              ai_confidence: null,
+            };
+          }
+          // If not skipped but no match, return product as-is (might be analyzed later)
+          return product;
+        }
 
+        // For products with matches, merge AI results
+        // If AI fields are null/undefined in match, it means product was skipped from analysis
         return {
           ...product,
-          ai_status: match.ai_status,
-          notes_by_ai: match.notes_by_ai,
-          ai_confidence: match.ai_confidence,
+          ai_status: match.ai_status ?? null,
+          notes_by_ai: match.notes_by_ai ?? null,
+          ai_confidence: match.ai_confidence ?? null,
           manufacturer: product.manufacturer || match.manufacturer,
         };
       }),
@@ -122,16 +140,20 @@ export default function CriticalPage() {
         products,
         (event) => {
           if (event.type === 'start') {
-            setProgress(`Processing ${event.total_products} products in ${event.total_chunks} chunks...`);
+            const skippedMsg = event.total_skipped > 0 ? ` (${event.total_skipped} skipped - no stocking decision)` : '';
+            setProgress(`Processing ${event.total_products} products in ${event.total_chunks} chunks...${skippedMsg}`);
           } else if (event.type === 'chunk_start') {
             setProgress(`Analyzing chunk ${event.chunk}/${event.total_chunks} (${event.products_in_chunk} products)...`);
           } else if (event.type === 'chunk_complete') {
             setProgress(`Completed chunk ${event.chunk}/${event.total_chunks}`);
           } else if (event.type === 'result' && event.data?.results) {
+            // Merge incremental chunk results for real-time updates
             setProducts((prev) => mergeResultsIntoProducts(prev, event.data.results));
           } else if (event.type === 'complete' && event.results) {
+            // Final merge with all results to ensure consistency
             setProducts((prev) => mergeResultsIntoProducts(prev, event.results));
-            setProgress(`Analysis complete! Analyzed ${event.total_analyzed} products.`);
+            const skippedMsg = event.total_skipped > 0 ? ` (${event.total_skipped} skipped - no stocking decision)` : '';
+            setProgress(`Analysis complete! Analyzed ${event.total_analyzed} products.${skippedMsg}`);
             setAnalyzing(false);
             setIsAnalyzed(true);
           } else if (event.type === 'error') {

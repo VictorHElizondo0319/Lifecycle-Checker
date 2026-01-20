@@ -26,7 +26,7 @@ export default function FilterBar({ products, onFilterChange }: FilterBarProps) 
     new Set(
       products
         .map((p) => p.ai_status)
-        .filter((s) => s && s !== '-')
+        .filter((s): s is string => s != null && s !== '-')
     )
   ).sort();
 
@@ -139,7 +139,7 @@ export default function FilterBar({ products, onFilterChange }: FilterBarProps) 
           >
             <option value="">All Statuses</option>
             {statuses.map((status) => (
-              <option key={status} value={status}>
+              <option key={status} value={status || ''}>
                 {status}
               </option>
             ))}
