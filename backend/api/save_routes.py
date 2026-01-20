@@ -295,8 +295,11 @@ def _update_part_from_product(part: Part, product_data: Dict[str, Any]):
     if 'notes' in product_data:
         part.notes = product_data.get('notes')
     
-    # AI Analysis Fields
+    # AI Analysis Fields - only update if explicitly provided in product_data
+    # For products with missing/no stocking_decision, these will be None/empty
+    # This ensures skipped products are saved without AI data
     if 'ai_status' in product_data:
+        # Set the value (can be None for skipped products)
         part.ai_status = product_data.get('ai_status')
     if 'notes_by_ai' in product_data:
         part.notes_by_ai = product_data.get('notes_by_ai')

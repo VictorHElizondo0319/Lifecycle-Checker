@@ -20,6 +20,33 @@ azure_ai_service = None  # Lazy initialization to avoid startup crashes
 
 CHUNK_SIZE = 10
 
+def _should_analyze_product(product: Dict[str, Any]) -> bool:
+    """
+    Check if a product should be analyzed by AI.
+    Products with missing or "no" stocking_decision should not be analyzed.
+    """
+    stocking_decision = product.get('stocking_decision', '').strip().lower() if product.get('stocking_decision') else ''
+    # Skip analysis if stocking_decision is missing, empty, or "no"
+    return stocking_decision and stocking_decision != 'no'
+
+
+def _create_skipped_result(product: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Create a result entry for products that were skipped from AI analysis.
+    These products will have no AI status, notes, or confidence.
+    """
+    manufacturer = product.get('part_manufacturer') or product.get('manufacturer', '')
+    part_number = product.get('manufacturer_part_number') or product.get('part_number', '')
+    
+    return {
+        "manufacturer": manufacturer,
+        "part_number": part_number,
+        "ai_status": None,  # Explicitly set to None (not analyzed)
+        "notes_by_ai": None,
+        "ai_confidence": None
+    }
+
+
 def get_azure_ai_service():
     """
     Get or create AzureAIService instance with lazy initialization.
@@ -96,34 +123,42 @@ def analyze_products():
                 }
             )
         
-        # Non-streaming: process all products
-        # Split into chunks of 30 for parallel processing
-        chunks = split_products_into_chunks(products, chunk_size=CHUNK_SIZE)
+        # Separate products into those that need AI analysis and those that don't
+        products_to_analyze = [p for p in products if _should_analyze_product(p)]
+        products_to_skip = [p for p in products if not _should_analyze_product(p)]
         
-        all_results = []
-        conversation_id = None
+        # Create results for skipped products (no AI analysis)
+        skipped_results = [_create_skipped_result(p) for p in products_to_skip]
+        all_results = skipped_results.copy()
         
-        # Process chunks in parallel using ThreadPoolExecutor
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(chunks), 5)) as executor:
-            future_to_chunk = {
-                executor.submit(ai_service.analyze_product_chunk, chunk, conversation_id): chunk
-                for chunk in chunks
-            }
+        # If there are products to analyze, process them
+        if products_to_analyze:
+            # Split into chunks for parallel processing
+            chunks = split_products_into_chunks(products_to_analyze, chunk_size=CHUNK_SIZE)
+            conversation_id = None
             
-            for future in concurrent.futures.as_completed(future_to_chunk):
-                result = future.result()
-                if result['success'] and result.get('parsed_json'):
-                    parsed_json = result['parsed_json']
-                    if isinstance(parsed_json, dict) and 'results' in parsed_json:
-                        all_results.extend(parsed_json['results'])
-                    # Update conversation_id for next chunk (if available)
-                    if result.get('conversation_id'):
-                        conversation_id = result['conversation_id']
+            # Process chunks in parallel using ThreadPoolExecutor
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(chunks), 5)) as executor:
+                future_to_chunk = {
+                    executor.submit(ai_service.analyze_product_chunk, chunk, conversation_id): chunk
+                    for chunk in chunks
+                }
+                
+                for future in concurrent.futures.as_completed(future_to_chunk):
+                    result = future.result()
+                    if result['success'] and result.get('parsed_json'):
+                        parsed_json = result['parsed_json']
+                        if isinstance(parsed_json, dict) and 'results' in parsed_json:
+                            all_results.extend(parsed_json['results'])
+                        # Update conversation_id for next chunk (if available)
+                        if result.get('conversation_id'):
+                            conversation_id = result['conversation_id']
         
         return jsonify({
             "success": True,
             "results": all_results,
-            "total_analyzed": len(all_results)
+            "total_analyzed": len(products_to_analyze),
+            "total_skipped": len(products_to_skip)
         })
         
     except Exception as e:
@@ -144,14 +179,31 @@ def _stream_analysis(products: List[Dict[str, Any]]):
         SSE-formatted strings
     """
     try:
-        # Split into chunks
-        chunks = split_products_into_chunks(products, chunk_size=CHUNK_SIZE)
+        # Separate products into those that need AI analysis and those that don't
+        products_to_analyze = [p for p in products if _should_analyze_product(p)]
+        products_to_skip = [p for p in products if not _should_analyze_product(p)]
+        
+        # Create results for skipped products (no AI analysis)
+        skipped_results = [_create_skipped_result(p) for p in products_to_skip]
+        
+        all_results = skipped_results.copy()
+        total_products = len(products)
+        total_to_analyze = len(products_to_analyze)
+        total_skipped = len(products_to_skip)
+        
+        # If no products need analysis, return early
+        if total_to_analyze == 0:
+            yield f"data: {json.dumps({'type': 'start', 'total_chunks': 0, 'total_products': total_products, 'total_skipped': total_skipped})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'results': all_results, 'total_analyzed': total_to_analyze, 'total_skipped': total_skipped})}\n\n"
+            return
+        
+        # Split products that need analysis into chunks
+        chunks = split_products_into_chunks(products_to_analyze, chunk_size=CHUNK_SIZE)
         total_chunks = len(chunks)
         
         # Send initial progress
-        yield f"data: {json.dumps({'type': 'start', 'total_chunks': total_chunks, 'total_products': len(products)})}\n\n"
+        yield f"data: {json.dumps({'type': 'start', 'total_chunks': total_chunks, 'total_products': total_products, 'total_to_analyze': total_to_analyze, 'total_skipped': total_skipped})}\n\n"
         
-        all_results = []
         conversation_id = None
         
         service_type = "azure"
@@ -189,7 +241,7 @@ def _stream_analysis(products: List[Dict[str, Any]]):
             yield f"data: {json.dumps({'type': 'chunk_complete', 'chunk': idx + 1, 'total_chunks': total_chunks})}\n\n"
         
         # Send final results
-        yield f"data: {json.dumps({'type': 'complete', 'results': all_results, 'total_analyzed': len(all_results)})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete', 'results': all_results, 'total_analyzed': total_to_analyze, 'total_skipped': total_skipped})}\n\n"
         
     except Exception as e:
         yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
