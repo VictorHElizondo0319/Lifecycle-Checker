@@ -11,7 +11,7 @@ backend/
 │   └── analyze_routes.py  # Product analysis endpoints
 ├── services/
 │   ├── excel.service.py   # Excel parsing service
-│   └── ai.service.py      # OpenAI AI analysis service
+│   └── azure_ai_service.py # Azure AI analysis service
 ├── app.py                 # Main Flask application
 ├── config.py             # Configuration (system prompts)
 └── requirements.txt      # Python dependencies
@@ -26,7 +26,9 @@ pip install -r requirements.txt
 
 2. Create a `.env` file in the backend directory:
 ```
-OPENAI_API_KEY=your_openai_api_key_here
+AZURE_AI_API_ENDPOINT=your_azure_ai_endpoint
+AZURE_AI_AGENT=your_azure_ai_agent_name
+AZURE_AI_REPLACEMENT_AGENT=your_replacement_agent_name
 ```
 
 3. Run the application:
@@ -102,5 +104,5 @@ Server-Sent Events (SSE) stream with JSON objects.
 - Automatic column detection for manufacturer and part number
 - Parallel processing of product chunks (30 products per chunk)
 - Streaming analysis results for real-time updates
-- OpenAI integration with web search capabilities
+- Azure AI integration with agent-based analysis
 

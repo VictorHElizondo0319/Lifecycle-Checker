@@ -25,7 +25,7 @@ export default function Sidebar() {
 
   const pages = [
     {
-      label: "Critical Separate Parts",
+      label: "Critical Spare Parts",
       path: useSafeRouter("critical"),
       key: "critical"
     },

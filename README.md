@@ -11,41 +11,15 @@ Lifecycle-Checker/
 │   ├── api/          # API routes
 │   ├── services/     # Business logic services
 │   └── app.py        # Main Flask application
-├── app/               # Electron desktop application
-│   ├── main.js       # Electron main process
-│   ├── preload.js    # Preload script
-│   └── package.json  # Electron configuration
 └── README.md
 ```
 
-## Application Versions
-
-This project provides two ways to run the application:
-
-1. **Web Application** - Run backend and frontend separately (see setup below)
-2. **Desktop Application** - Electron app that bundles everything (see `app/` directory)
-
-### Desktop Application (Electron)
-
-For a standalone desktop application, see the `app/` directory:
-
-```bash
-cd app
-npm install
-npm start
-```
-
-See `app/README.md` and `app/SETUP.md` for detailed instructions.
-
-### Web Application
-
-For running as separate web services:
 
 ## Features
 
 - Upload Excel files (.xlsx, .xls) with product lists
 - Automatic parsing of manufacturer and part number columns
-- AI-powered lifecycle status analysis using OpenAI
+- AI-powered lifecycle status analysis using Azure AI
 - Real-time streaming analysis results
 - Parallel processing for better performance
 - Modern, responsive UI built with Next.js and Tailwind CSS
@@ -66,7 +40,9 @@ pip install -r requirements.txt
 
 3. Create a `.env` file:
 ```
-OPENAI_API_KEY=your_openai_api_key_here
+AZURE_AI_API_ENDPOINT=your_azure_ai_endpoint
+AZURE_AI_AGENT=your_azure_ai_agent_name
+AZURE_AI_REPLACEMENT_AGENT=your_replacement_agent_name
 ```
 
 4. Run the Flask server:
@@ -120,7 +96,7 @@ The frontend will run on `http://localhost:3000`
 
 ### Backend
 - Flask
-- OpenAI API
+- Azure AI Projects
 - Pandas (Excel parsing)
 - Python 3.8+
 
