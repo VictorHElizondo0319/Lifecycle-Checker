@@ -7,7 +7,6 @@ import os
 # Add backend directory to path
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, backend_dir)
-from services.ai_service import AIService
 from services.azure_ai_service import AzureAIService
 from services.excel_service import split_products_into_chunks
 import json
@@ -15,7 +14,6 @@ import concurrent.futures
 from typing import List, Dict, Any
 
 analyze_bp = Blueprint('analyze', __name__)
-ai_service = AIService()
 azure_ai_service = None  # Lazy initialization to avoid startup crashes
 
 CHUNK_SIZE = 10
@@ -133,6 +131,14 @@ def analyze_products():
         
         # If there are products to analyze, process them
         if products_to_analyze:
+            # Get Azure AI service
+            analyze_service = get_azure_ai_service()
+            if analyze_service is None:
+                return jsonify({
+                    "success": False,
+                    "error": "Azure AI service is not available. Please ensure you are logged in to Azure using 'az login' and have configured Azure AI credentials."
+                }), 503
+            
             # Split into chunks for parallel processing
             chunks = split_products_into_chunks(products_to_analyze, chunk_size=CHUNK_SIZE)
             conversation_id = None
@@ -140,7 +146,7 @@ def analyze_products():
             # Process chunks in parallel using ThreadPoolExecutor
             with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(chunks), 5)) as executor:
                 future_to_chunk = {
-                    executor.submit(ai_service.analyze_product_chunk, chunk, conversation_id): chunk
+                    executor.submit(analyze_service.analyze_product_chunk, chunk, conversation_id): chunk
                     for chunk in chunks
                 }
                 
@@ -205,17 +211,13 @@ def _stream_analysis(products: List[Dict[str, Any]]):
         yield f"data: {json.dumps({'type': 'start', 'total_chunks': total_chunks, 'total_products': total_products, 'total_to_analyze': total_to_analyze, 'total_skipped': total_skipped})}\n\n"
         
         conversation_id = None
-        
-        service_type = "azure"
 
         # Get Azure AI service lazily (only when needed)
-        if service_type == "azure":
-            analyze_service = get_azure_ai_service()
-            if analyze_service is None:
-                # Fallback to regular AI service if Azure is not available
-                analyze_service = ai_service
-        else:
-            analyze_service = ai_service
+        analyze_service = get_azure_ai_service()
+        if analyze_service is None:
+            error_msg = "Azure AI service is not available. Please ensure you are logged in to Azure using 'az login' and have configured Azure AI credentials."
+            yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
+            return
 
         # Process chunks sequentially for streaming (can be parallelized with more complex logic)
         for idx, chunk in enumerate(chunks):
@@ -314,16 +316,12 @@ def _stream_find_replacements(products: List[Dict[str, Any]]):
         all_results = []
         conversation_id = None
         
-        # Use Azure AI service for finding replacements
-        service_type = "azure"
         # Get Azure AI service lazily (only when needed)
-        if service_type == "azure":
-            replacement_service = get_azure_ai_service()
-            if replacement_service is None:
-                # Fallback to regular AI service if Azure is not available
-                replacement_service = ai_service
-        else:
-            replacement_service = ai_service
+        replacement_service = get_azure_ai_service()
+        if replacement_service is None:
+            error_msg = "Azure AI service is not available. Please ensure you are logged in to Azure using 'az login' and have configured Azure AI credentials."
+            yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
+            return
         
         # Process chunks sequentially for streaming
         for idx, chunk in enumerate(chunks):
@@ -331,35 +329,19 @@ def _stream_find_replacements(products: List[Dict[str, Any]]):
             yield f"data: {json.dumps({'type': 'chunk_start', 'chunk': idx + 1, 'total_chunks': total_chunks, 'products_in_chunk': len(chunk)})}\n\n"
             
             # Find replacements for chunk using Azure AI
-            if service_type == "azure":
-                for stream_data in replacement_service.find_replacement_chunk_streaming(chunk, conversation_id):
-                    yield f"data: {stream_data}\n\n"
-                    
-                    # Parse the stream data to extract results
-                    try:
-                        stream_obj = json.loads(stream_data)
-                        if stream_obj.get('type') == 'result' and stream_obj.get('data'):
-                            chunk_results = stream_obj['data'].get('results', [])
-                            all_results.extend(chunk_results)
-                            if stream_obj.get('conversation_id'):
-                                conversation_id = stream_obj['conversation_id']
-                    except:
-                        pass
-            else:
-                # Fallback to OpenAI service if needed
-                for stream_data in replacement_service.find_product_replacement_chunk_streaming(chunk, conversation_id):
-                    yield f"data: {stream_data}\n\n"
-                    
-                    # Parse the stream data to extract results
-                    try:
-                        stream_obj = json.loads(stream_data)
-                        if stream_obj.get('type') == 'result' and stream_obj.get('data'):
-                            chunk_results = stream_obj['data'].get('results', [])
-                            all_results.extend(chunk_results)
-                            if stream_obj.get('conversation_id'):
-                                conversation_id = stream_obj['conversation_id']
-                    except:
-                        pass
+            for stream_data in replacement_service.find_replacement_chunk_streaming(chunk, conversation_id):
+                yield f"data: {stream_data}\n\n"
+                
+                # Parse the stream data to extract results
+                try:
+                    stream_obj = json.loads(stream_data)
+                    if stream_obj.get('type') == 'result' and stream_obj.get('data'):
+                        chunk_results = stream_obj['data'].get('results', [])
+                        all_results.extend(chunk_results)
+                        if stream_obj.get('conversation_id'):
+                            conversation_id = stream_obj['conversation_id']
+                except:
+                    pass
             
             # Send chunk complete
             yield f"data: {json.dumps({'type': 'chunk_complete', 'chunk': idx + 1, 'total_chunks': total_chunks})}\n\n"
