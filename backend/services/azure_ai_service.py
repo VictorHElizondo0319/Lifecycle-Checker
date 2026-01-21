@@ -6,7 +6,7 @@ import re
 import time
 
 from azure.ai.projects import AIProjectClient
-from azure.identity import DefaultAzureCredential
+from azure.identity import ClientSecretCredential
 
 # Ensure we can import `config` from backend
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -25,15 +25,40 @@ class AzureAIService:
         if not agent_name:
             raise RuntimeError("AZURE_AI_AGENT is not set")
 
-        # Try to initialize Azure credentials - handle errors gracefully
+        # Get Service Principal credentials from environment variables
+        tenant_id = os.getenv("AZURE_TENANT_ID")
+        client_id = os.getenv("AZURE_CLIENT_ID")
+        client_secret = os.getenv("AZURE_CLIENT_SECRET")
+
+        if not tenant_id:
+            raise RuntimeError(
+                "AZURE_TENANT_ID is not set. Please configure Azure Service Principal credentials.\n"
+                "Required environment variables: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET"
+            )
+        if not client_id:
+            raise RuntimeError(
+                "AZURE_CLIENT_ID is not set. Please configure Azure Service Principal credentials.\n"
+                "Required environment variables: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET"
+            )
+        if not client_secret:
+            raise RuntimeError(
+                "AZURE_CLIENT_SECRET is not set. Please configure Azure Service Principal credentials.\n"
+                "Required environment variables: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET"
+            )
+
+        # Initialize Azure credentials using Service Principal (no Azure CLI required)
         try:
-            credential = DefaultAzureCredential()
+            credential = ClientSecretCredential(
+                tenant_id=tenant_id,
+                client_id=client_id,
+                client_secret=client_secret
+            )
         except Exception as e:
-            # If DefaultAzureCredential fails, provide a helpful error message
+            # If ClientSecretCredential fails, provide a helpful error message
             error_msg = (
                 f"Failed to initialize Azure credentials: {str(e)}\n"
-                "Please ensure you are logged in to Azure CLI using 'az login'.\n"
-                "The application will continue but Azure AI features will be unavailable."
+                "Please ensure Azure Service Principal credentials are correctly configured.\n"
+                "Required environment variables: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET"
             )
             raise RuntimeError(error_msg) from e
 

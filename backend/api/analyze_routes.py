@@ -48,7 +48,7 @@ def _create_skipped_result(product: Dict[str, Any]) -> Dict[str, Any]:
 def get_azure_ai_service():
     """
     Get or create AzureAIService instance with lazy initialization.
-    This prevents DefaultAzureCredential from being called at import time.
+    This prevents Azure credentials from being initialized at import time.
     """
     global azure_ai_service
     if azure_ai_service is None:
@@ -136,7 +136,7 @@ def analyze_products():
             if analyze_service is None:
                 return jsonify({
                     "success": False,
-                    "error": "Azure AI service is not available. Please ensure you are logged in to Azure using 'az login' and have configured Azure AI credentials."
+                    "error": "Azure AI service is not available. Please ensure Azure Service Principal credentials are configured (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET)."
                 }), 503
             
             # Split into chunks for parallel processing
@@ -215,7 +215,7 @@ def _stream_analysis(products: List[Dict[str, Any]]):
         # Get Azure AI service lazily (only when needed)
         analyze_service = get_azure_ai_service()
         if analyze_service is None:
-            error_msg = "Azure AI service is not available. Please ensure you are logged in to Azure using 'az login' and have configured Azure AI credentials."
+            error_msg = "Azure AI service is not available. Please ensure Azure Service Principal credentials are configured (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET)."
             yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
             return
 
@@ -319,7 +319,7 @@ def _stream_find_replacements(products: List[Dict[str, Any]]):
         # Get Azure AI service lazily (only when needed)
         replacement_service = get_azure_ai_service()
         if replacement_service is None:
-            error_msg = "Azure AI service is not available. Please ensure you are logged in to Azure using 'az login' and have configured Azure AI credentials."
+            error_msg = "Azure AI service is not available. Please ensure Azure Service Principal credentials are configured (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET)."
             yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
             return
         
