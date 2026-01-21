@@ -58,7 +58,7 @@ def get_azure_ai_service():
             # If Azure credentials are not available, return None
             # The calling code should handle this gracefully
             print(f"Warning: Could not initialize AzureAIService: {e}")
-            print("Azure AI features will be unavailable until Azure login is completed.")
+            print("Azure AI features will be unavailable until Azure Service Principal credentials are configured.")
             return None
     return azure_ai_service
 @analyze_bp.route('/analyze', methods=['POST'])
