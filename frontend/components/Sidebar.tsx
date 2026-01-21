@@ -2,7 +2,6 @@
 
 import {useSafeRouter, useSafePathname, isStaticExport} from '@/hooks/useSafeRouter';
 import Link from 'next/link';
-import AzureStatus from './AzureStatus';
 
 export default function Sidebar() {
   const pathname = useSafePathname();
@@ -91,11 +90,6 @@ export default function Sidebar() {
             </Link>
           );
         })}
-      </div>
-
-      {/* Azure Status Section */}
-      <div className="border-t border-gray-200 p-4">
-        <AzureStatus />
       </div>
     </div>
   );
