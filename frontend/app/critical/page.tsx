@@ -465,7 +465,7 @@ export default function CriticalPage() {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <h2 className="text-lg font-semibold text-gray-800">
-                  Products ({filteredProducts.length} of {products.length})
+                  Parts ({filteredProducts.length} of {products.length})
                 </h2>
                 <FieldSelector
                   fields={FIELD_CONFIGS}
