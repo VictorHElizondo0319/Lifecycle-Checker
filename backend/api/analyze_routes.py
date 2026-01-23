@@ -9,6 +9,7 @@ backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, backend_dir)
 from services.azure_ai_service import AzureAIService
 from services.excel_service import split_products_into_chunks
+from services.analysis_logger import log_analysis_results, log_analysis_results_json
 import json
 import concurrent.futures
 from typing import List, Dict, Any
@@ -160,6 +161,28 @@ def analyze_products():
                         if result.get('conversation_id'):
                             conversation_id = result['conversation_id']
         
+        # Log analysis results to .txt file
+        try:
+            log_path = log_analysis_results(
+                results=all_results,
+                analysis_type="analysis",
+                total_analyzed=len(products_to_analyze),
+                total_skipped=len(products_to_skip)
+            )
+            # Also log as JSON for programmatic access
+            json_log_path = log_analysis_results_json(
+                results=all_results,
+                analysis_type="analysis",
+                total_analyzed=len(products_to_analyze),
+                total_skipped=len(products_to_skip)
+            )
+            if log_path:
+                print(f"Analysis results logged to: {log_path}")
+            if json_log_path:
+                print(f"Analysis results (JSON) logged to: {json_log_path}")
+        except Exception as e:
+            print(f"Warning: Failed to log analysis results: {e}")
+        
         return jsonify({
             "success": True,
             "results": all_results,
@@ -244,6 +267,28 @@ def _stream_analysis(products: List[Dict[str, Any]]):
         
         # Send final results
         yield f"data: {json.dumps({'type': 'complete', 'results': all_results, 'total_analyzed': total_to_analyze, 'total_skipped': total_skipped})}\n\n"
+        
+        # Log analysis results to .txt file
+        try:
+            log_path = log_analysis_results(
+                results=all_results,
+                analysis_type="analysis",
+                total_analyzed=total_to_analyze,
+                total_skipped=total_skipped
+            )
+            # Also log as JSON for programmatic access
+            json_log_path = log_analysis_results_json(
+                results=all_results,
+                analysis_type="analysis",
+                total_analyzed=total_to_analyze,
+                total_skipped=total_skipped
+            )
+            if log_path:
+                print(f"Analysis results logged to: {log_path}")
+            if json_log_path:
+                print(f"Analysis results (JSON) logged to: {json_log_path}")
+        except Exception as e:
+            print(f"Warning: Failed to log analysis results: {e}")
         
     except Exception as e:
         yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
@@ -348,6 +393,28 @@ def _stream_find_replacements(products: List[Dict[str, Any]]):
         
         # Send final results
         yield f"data: {json.dumps({'type': 'complete', 'results': all_results, 'total_analyzed': len(all_results)})}\n\n"
+        
+        # Log replacement finding results to .txt file
+        try:
+            log_path = log_analysis_results(
+                results=all_results,
+                analysis_type="replacements",
+                total_analyzed=len(all_results),
+                total_skipped=0
+            )
+            # Also log as JSON for programmatic access
+            json_log_path = log_analysis_results_json(
+                results=all_results,
+                analysis_type="replacements",
+                total_analyzed=len(all_results),
+                total_skipped=0
+            )
+            if log_path:
+                print(f"Replacement finding results logged to: {log_path}")
+            if json_log_path:
+                print(f"Replacement finding results (JSON) logged to: {json_log_path}")
+        except Exception as e:
+            print(f"Warning: Failed to log replacement finding results: {e}")
         
     except Exception as e:
         yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
