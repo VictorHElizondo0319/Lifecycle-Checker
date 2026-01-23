@@ -141,9 +141,9 @@ export default function CriticalPage() {
         (event) => {
           if (event.type === 'start') {
             const skippedMsg = event.total_skipped > 0 ? ` (${event.total_skipped} skipped - no stocking decision)` : '';
-            setProgress(`Processing ${event.total_products} products in ${event.total_chunks} chunks...${skippedMsg}`);
+            setProgress(`Processing ${event.total_products} parts in ${event.total_chunks} chunks...${skippedMsg}`);
           } else if (event.type === 'chunk_start') {
-            setProgress(`Analyzing chunk ${event.chunk}/${event.total_chunks} (${event.products_in_chunk} products)...`);
+            setProgress(`Analyzing chunk ${event.chunk}/${event.total_chunks} (${event.products_in_chunk} parts)...`);
           } else if (event.type === 'chunk_complete') {
             setProgress(`Completed chunk ${event.chunk}/${event.total_chunks}`);
           } else if (event.type === 'result' && event.data?.results) {
@@ -187,7 +187,7 @@ export default function CriticalPage() {
     });
 
     if (obsoleteProducts.length === 0) {
-      setError('No obsolete products found. Please analyze products first to identify obsolete parts.');
+      setError('No obsolete parts found. Please analyze parts first to identify obsolete parts.');
       return;
     }
 
