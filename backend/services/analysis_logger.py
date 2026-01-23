@@ -7,6 +7,7 @@ import sys
 import json
 from datetime import datetime
 from typing import List, Dict, Any
+import logging
 
 
 def get_log_directory() -> str:
@@ -32,6 +33,114 @@ def get_log_directory() -> str:
     os.makedirs(log_dir, exist_ok=True)
     
     return log_dir
+
+
+def setup_debug_logger() -> logging.Logger:
+    """
+    Setup a file-based logger for debug information.
+    This is useful when running in Electron where console output is not visible.
+    
+    Returns:
+        Configured logger instance
+    """
+    log_dir = get_log_directory()
+    log_file = os.path.join(log_dir, 'debug.log')
+    
+    # Create logger
+    logger = logging.getLogger('azure_ai_debug')
+    logger.setLevel(logging.DEBUG)
+    
+    # Remove existing handlers to avoid duplicates
+    logger.handlers = []
+    
+    # Create file handler
+    file_handler = logging.FileHandler(log_file, encoding='utf-8', mode='a')
+    file_handler.setLevel(logging.DEBUG)
+    
+    # Create formatter
+    formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(formatter)
+    
+    # Add handler to logger
+    logger.addHandler(file_handler)
+    
+    return logger
+
+
+def get_debug_logger() -> logging.Logger:
+    """
+    Get or create the debug logger instance.
+    
+    Returns:
+        Logger instance
+    """
+    logger = logging.getLogger('azure_ai_debug')
+    if not logger.handlers:
+        logger = setup_debug_logger()
+    return logger
+
+
+def log_debug(message: str, *args, **kwargs):
+    """
+    Log a debug message to file.
+    
+    Args:
+        message: Debug message
+        *args: Additional arguments for formatting
+        **kwargs: Additional keyword arguments
+    """
+    try:
+        logger = get_debug_logger()
+        if args or kwargs:
+            logger.debug(message.format(*args, **kwargs))
+        else:
+            logger.debug(message)
+    except Exception as e:
+        # Fallback to print if logging fails
+        print(f"Failed to log debug message: {e}")
+
+
+def log_info(message: str, *args, **kwargs):
+    """
+    Log an info message to file.
+    
+    Args:
+        message: Info message
+        *args: Additional arguments for formatting
+        **kwargs: Additional keyword arguments
+    """
+    try:
+        logger = get_debug_logger()
+        if args or kwargs:
+            logger.info(message.format(*args, **kwargs))
+        else:
+            logger.info(message)
+    except Exception as e:
+        # Fallback to print if logging fails
+        print(f"Failed to log info message: {e}")
+
+
+def log_error(message: str, *args, **kwargs):
+    """
+    Log an error message to file.
+    
+    Args:
+        message: Error message
+        *args: Additional arguments for formatting
+        **kwargs: Additional keyword arguments
+    """
+    try:
+        logger = get_debug_logger()
+        if args or kwargs:
+            logger.error(message.format(*args, **kwargs))
+        else:
+            logger.error(message)
+    except Exception as e:
+        # Fallback to print if logging fails
+        print(f"Failed to log error message: {e}")
 
 
 def format_analysis_result(result: Dict[str, Any], is_replacement: bool = False) -> str:

@@ -12,10 +12,19 @@ from azure.identity import ClientSecretCredential
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, backend_dir)
 from config import SYSTEM_PROMPT, SYSTEM_PROMPT_FIND_REPLACEMENT
+from services.analysis_logger import log_debug, log_info, log_error
 
 
 class AzureAIService:
     def __init__(self):
+        # Debug: Log environment variable status
+        log_debug("Checking environment variables...")
+        log_debug("AZURE_AI_API_ENDPOINT exists: {}", bool(os.getenv('AZURE_AI_API_ENDPOINT')))
+        log_debug("AZURE_AI_AGENT exists: {}", bool(os.getenv('AZURE_AI_AGENT')))
+        log_debug("AZURE_TENANT_ID exists: {}", bool(os.getenv('AZURE_TENANT_ID')))
+        log_debug("AZURE_CLIENT_ID exists: {}", bool(os.getenv('AZURE_CLIENT_ID')))
+        log_debug("AZURE_CLIENT_SECRET exists: {}", bool(os.getenv('AZURE_CLIENT_SECRET')))
+        
         endpoint = os.getenv("AZURE_AI_API_ENDPOINT", "")
         agent_name = os.getenv("AZURE_AI_AGENT", "")
         replacement_agent_name = os.getenv("AZURE_AI_REPLACEMENT_AGENT", "")
@@ -157,7 +166,7 @@ class AzureAIService:
                         elif isinstance(last_text_msg, str):
                             text_val = last_text_msg
                     except Exception as e:
-                        print(f"DEBUG: Error extracting from text_messages: {e}")
+                        log_debug("Error extracting from text_messages: {}", str(e))
                 
                 # Method 2: content attribute directly
                 if not text_val and hasattr(message, 'content'):
@@ -179,18 +188,19 @@ class AzureAIService:
                     text_val = str(text_val).strip()
                     if text_val:  # Only return non-empty text
                         response_text = text_val
-                        print(f"DEBUG: Found assistant message with {len(text_val)} characters")
+                        log_debug("Found assistant message with {} characters", len(text_val))
                         break
                         
             except Exception as e:
-                print(f"DEBUG: Error processing message: {e}")
+                log_debug("Error processing message: {}", str(e))
                 continue
         
         if not response_text:
-            print(f"DEBUG: No assistant message found. Total messages: {len(messages_list)}")
-            # Debug: Print first few messages to understand structure
+            log_debug("No assistant message found. Total messages: {}", len(messages_list))
+            # Debug: Log first few messages to understand structure
             for i, msg in enumerate(messages_list[-3:]):  # Last 3 messages
-                print(f"DEBUG: Message {i}: role={getattr(msg, 'role', 'N/A')}, type={getattr(msg, 'type', 'N/A')}, has_text_messages={hasattr(msg, 'text_messages')}")
+                log_debug("Message {}: role={}, type={}, has_text_messages={}", 
+                         i, getattr(msg, 'role', 'N/A'), getattr(msg, 'type', 'N/A'), hasattr(msg, 'text_messages'))
         
         return response_text
 
@@ -265,16 +275,76 @@ class AzureAIService:
                     extra_body=extra_body
                 )
 
-                # Get response text directly
-                response_text = getattr(response, 'output_text', None)
+                # Debug: Log response object details
+                log_debug("Response object type: {}", type(response))
+                log_debug("Response object attributes: {}", [attr for attr in dir(response) if not attr.startswith('_')])
+                
+                # Try multiple ways to get response text
+                response_text = None
+                
+                # Method 1: Try output_text attribute
+                if hasattr(response, 'output_text'):
+                    response_text = getattr(response, 'output_text', None)
+                    log_debug("output_text found: {}, length: {}", response_text is not None, len(response_text) if response_text else 0)
+                
+                # Method 2: Try output attribute
+                if not response_text and hasattr(response, 'output'):
+                    output = getattr(response, 'output', None)
+                    if output:
+                        if isinstance(output, str):
+                            response_text = output
+                        elif hasattr(output, 'text'):
+                            response_text = getattr(output, 'text', None)
+                        elif isinstance(output, list) and len(output) > 0:
+                            # Try to get text from first item
+                            first_item = output[0]
+                            if hasattr(first_item, 'text'):
+                                response_text = getattr(first_item, 'text', None)
+                            elif isinstance(first_item, dict) and 'text' in first_item:
+                                response_text = first_item.get('text')
+                        log_debug("output attribute found: {}", response_text is not None)
+                
+                # Method 3: Try to get from messages
+                if not response_text and hasattr(response, 'messages'):
+                    messages = getattr(response, 'messages', None)
+                    if messages:
+                        response_text = self._get_assistant_message_text(messages)
+                        log_debug("messages found, extracted text: {}", response_text is not None)
+                
+                # Method 4: Try to serialize and look for text
+                if not response_text:
+                    try:
+                        response_dict = response.__dict__ if hasattr(response, '__dict__') else {}
+                        # Look for common text fields
+                        for key in ['text', 'content', 'message', 'output_text', 'response_text']:
+                            if key in response_dict:
+                                value = response_dict[key]
+                                if isinstance(value, str) and value.strip():
+                                    response_text = value
+                                    log_debug("Found text in {}", key)
+                                    break
+                    except Exception as e:
+                        log_error("Error inspecting response dict: {}", str(e))
+                
+                # Clean up response text
                 if response_text:
                     response_text = response_text.strip()
+                    log_debug("Final response_text length: {}", len(response_text))
+                else:
+                    log_error("No response text found. Response object: {}", str(response))
+                    # Try to log response as string for debugging
+                    try:
+                        response_str = str(response)[:500]
+                        log_debug("Response str representation: {}", response_str)
+                    except Exception as e:
+                        log_error("Error converting response to string: {}", str(e))
 
                 # Get response ID for conversation continuity
                 response_id = getattr(response, 'id', None) or conversation_id
 
                 # If no response text, use fallback
                 if not response_text:
+                    log_error("No response text found, using fallback")
                     fallback_json = self._generate_fallback_json(products, is_replacement=False)
                     return {
                         'success': True,
@@ -307,7 +377,10 @@ class AzureAIService:
                 }
 
             except Exception as e:
-                print(f"DEBUG: Error in analyze_product_chunk (attempt {attempt + 1}): {e}")
+                import traceback
+                error_trace = traceback.format_exc()
+                log_error("Error in analyze_product_chunk (attempt {}): {}", attempt + 1, str(e))
+                log_error("Full traceback:\n{}", error_trace)
                 if attempt < self.max_retries - 1:
                     time.sleep(self.retry_delay)
                     continue
@@ -318,7 +391,8 @@ class AzureAIService:
                     'conversation_id': conversation_id,
                     'response_text': json.dumps(fallback_json),
                     'parsed_json': fallback_json,
-                    'products_analyzed': len(products)
+                    'products_analyzed': len(products),
+                    'error': str(e)  # Include error for debugging
                 }
         
         # Should never reach here, but just in case
@@ -368,8 +442,48 @@ class AzureAIService:
                     extra_body=extra_body
                 )
 
-                # Get response text directly
-                response_text = getattr(response, 'output_text', None)
+                # Try multiple ways to get response text (same as analyze_product_chunk)
+                response_text = None
+                
+                # Method 1: Try output_text attribute
+                if hasattr(response, 'output_text'):
+                    response_text = getattr(response, 'output_text', None)
+                
+                # Method 2: Try output attribute
+                if not response_text and hasattr(response, 'output'):
+                    output = getattr(response, 'output', None)
+                    if output:
+                        if isinstance(output, str):
+                            response_text = output
+                        elif hasattr(output, 'text'):
+                            response_text = getattr(output, 'text', None)
+                        elif isinstance(output, list) and len(output) > 0:
+                            first_item = output[0]
+                            if hasattr(first_item, 'text'):
+                                response_text = getattr(first_item, 'text', None)
+                            elif isinstance(first_item, dict) and 'text' in first_item:
+                                response_text = first_item.get('text')
+                
+                # Method 3: Try to get from messages
+                if not response_text and hasattr(response, 'messages'):
+                    messages = getattr(response, 'messages', None)
+                    if messages:
+                        response_text = self._get_assistant_message_text(messages)
+                
+                # Method 4: Try to serialize and look for text
+                if not response_text:
+                    try:
+                        response_dict = response.__dict__ if hasattr(response, '__dict__') else {}
+                        for key in ['text', 'content', 'message', 'output_text', 'response_text']:
+                            if key in response_dict:
+                                value = response_dict[key]
+                                if isinstance(value, str) and value.strip():
+                                    response_text = value
+                                    break
+                    except Exception:
+                        pass
+                
+                # Clean up response text
                 if response_text:
                     response_text = response_text.strip()
 
@@ -378,6 +492,7 @@ class AzureAIService:
 
                 # If no response text, use fallback
                 if not response_text:
+                    log_error("No response text in streaming, using fallback")
                     fallback_json = self._generate_fallback_json(products, is_replacement=False)
                     yield json.dumps({
                         'type': 'result',
@@ -538,8 +653,48 @@ class AzureAIService:
                     extra_body=extra_body
                 )
 
-                # Get response text directly
-                response_text = getattr(response, 'output_text', None)
+                # Try multiple ways to get response text (same as analyze_product_chunk)
+                response_text = None
+                
+                # Method 1: Try output_text attribute
+                if hasattr(response, 'output_text'):
+                    response_text = getattr(response, 'output_text', None)
+                
+                # Method 2: Try output attribute
+                if not response_text and hasattr(response, 'output'):
+                    output = getattr(response, 'output', None)
+                    if output:
+                        if isinstance(output, str):
+                            response_text = output
+                        elif hasattr(output, 'text'):
+                            response_text = getattr(output, 'text', None)
+                        elif isinstance(output, list) and len(output) > 0:
+                            first_item = output[0]
+                            if hasattr(first_item, 'text'):
+                                response_text = getattr(first_item, 'text', None)
+                            elif isinstance(first_item, dict) and 'text' in first_item:
+                                response_text = first_item.get('text')
+                
+                # Method 3: Try to get from messages
+                if not response_text and hasattr(response, 'messages'):
+                    messages = getattr(response, 'messages', None)
+                    if messages:
+                        response_text = self._get_assistant_message_text(messages)
+                
+                # Method 4: Try to serialize and look for text
+                if not response_text:
+                    try:
+                        response_dict = response.__dict__ if hasattr(response, '__dict__') else {}
+                        for key in ['text', 'content', 'message', 'output_text', 'response_text']:
+                            if key in response_dict:
+                                value = response_dict[key]
+                                if isinstance(value, str) and value.strip():
+                                    response_text = value
+                                    break
+                    except Exception:
+                        pass
+                
+                # Clean up response text
                 if response_text:
                     response_text = response_text.strip()
 
@@ -548,6 +703,7 @@ class AzureAIService:
 
                 # If no response text, use fallback
                 if not response_text:
+                    log_error("No response text in replacement streaming, using fallback")
                     fallback_json = self._generate_fallback_json(products, is_replacement=True)
                     yield json.dumps({
                         'type': 'result',
