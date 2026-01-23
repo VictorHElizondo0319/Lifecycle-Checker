@@ -437,7 +437,7 @@ export default function CriticalPage() {
           )}
           {products.length > 0 && (
             <p className="mt-2 text-sm text-green-600">
-              ✓ Loaded {products.length} products
+              ✓ Loaded {products.length} parts
             </p>
           )}
         </div>
@@ -492,7 +492,7 @@ export default function CriticalPage() {
                       disabled={analyzing}
                       className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-2 text-white font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {analyzing ? 'Analyzing...' : 'Analyze Products'}
+                      {analyzing ? 'Analyzing...' : 'Analyze Parts'}
                     </button>
                     <button
                       onClick={handleSave}
