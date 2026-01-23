@@ -287,10 +287,24 @@ export default function CriticalPage() {
     setExporting(true);
     setError('');
     try {
-      // Export all product fields including replacement fields
+      // Fields to exclude from export
+      const excludedFields = new Set([
+        'will_notes',
+        'nejat_notes',
+        'kc_notes',
+        'ricky_notes',
+        'stephanie_notes',
+        'initial_email_communication',
+        'follow_up_email_communication_date'
+      ]);
+      
+      // Filter out excluded fields from export columns
+      const exportCols = FIELD_CONFIGS.filter(field => !excludedFields.has(field.key));
+      
+      // Export all product fields including replacement fields (excluding specified fields)
       // Use products array which contains all fields including replacement data
       await exportExcelFile({
-        cols: Array.from(FIELD_CONFIGS),
+        cols: exportCols,
         products: products.map((product: Product) => ({
           ...product,
           ...pickGeneralInfo

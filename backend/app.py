@@ -11,6 +11,22 @@ from datetime import datetime
 # Load environment variables
 load_dotenv()
 
+# Import logger after dotenv is loaded
+from services.analysis_logger import log_info, log_debug, setup_debug_logger
+
+# Setup debug logger on startup
+setup_debug_logger()
+
+# Debug: Log environment variable status on startup
+log_info("=" * 80)
+log_info("Environment Variables Check (on startup):")
+log_info("AZURE_AI_API_ENDPOINT: {}", 'SET' if os.getenv('AZURE_AI_API_ENDPOINT') else 'NOT SET')
+log_info("AZURE_AI_AGENT: {}", 'SET' if os.getenv('AZURE_AI_AGENT') else 'NOT SET')
+log_info("AZURE_TENANT_ID: {}", 'SET' if os.getenv('AZURE_TENANT_ID') else 'NOT SET')
+log_info("AZURE_CLIENT_ID: {}", 'SET' if os.getenv('AZURE_CLIENT_ID') else 'NOT SET')
+log_info("AZURE_CLIENT_SECRET: {}", 'SET' if os.getenv('AZURE_CLIENT_SECRET') else 'NOT SET')
+log_info("=" * 80)
+
 app = Flask(__name__)
 CORS(app)
 
