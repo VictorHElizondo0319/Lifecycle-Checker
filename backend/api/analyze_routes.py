@@ -4,12 +4,13 @@ Analysis API Routes - Handle product lifecycle analysis
 from flask import Blueprint, request, jsonify, Response
 import sys
 import os
+from datetime import datetime
 # Add backend directory to path
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, backend_dir)
 from services.azure_ai_service import AzureAIService
 from services.excel_service import split_products_into_chunks
-from services.analysis_logger import log_analysis_results, log_analysis_results_json
+from services.analysis_logger import log_analysis_results, log_analysis_results_json, log_chunk_result
 import json
 import concurrent.futures
 from typing import List, Dict, Any
@@ -144,26 +145,83 @@ def analyze_products():
             chunks = split_products_into_chunks(products_to_analyze, chunk_size=CHUNK_SIZE)
             conversation_id = None
             
+            # Initialize log file for chunk-by-chunk logging
+            chunk_log_path = None
+            
             # Process chunks in parallel using ThreadPoolExecutor
             with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(chunks), 5)) as executor:
                 future_to_chunk = {
-                    executor.submit(analyze_service.analyze_product_chunk, chunk, conversation_id): chunk
-                    for chunk in chunks
+                    executor.submit(analyze_service.analyze_product_chunk, chunk, conversation_id): (idx, chunk)
+                    for idx, chunk in enumerate(chunks, 1)
                 }
                 
                 for future in concurrent.futures.as_completed(future_to_chunk):
-                    result = future.result()
-                    if result['success'] and result.get('parsed_json'):
-                        parsed_json = result['parsed_json']
-                        if isinstance(parsed_json, dict) and 'results' in parsed_json:
-                            all_results.extend(parsed_json['results'])
-                        # Update conversation_id for next chunk (if available)
-                        if result.get('conversation_id'):
-                            conversation_id = result['conversation_id']
+                    chunk_idx, chunk = future_to_chunk[future]
+                    try:
+                        result = future.result()
+                        
+                        # Log each chunk result (success or error)
+                        chunk_log_path = log_chunk_result(
+                            chunk_index=chunk_idx,
+                            chunk_result=result,
+                            chunk_products=chunk,
+                            analysis_type="analysis",
+                            log_file_path=chunk_log_path
+                        )
+                        
+                        if result['success'] and result.get('parsed_json'):
+                            parsed_json = result['parsed_json']
+                            if isinstance(parsed_json, dict) and 'results' in parsed_json:
+                                all_results.extend(parsed_json['results'])
+                            # Update conversation_id for next chunk (if available)
+                            if result.get('conversation_id'):
+                                conversation_id = result['conversation_id']
+                        else:
+                            # Log error result
+                            error_result = {
+                                'success': False,
+                                'error': result.get('error', 'Unknown error'),
+                                'parsed_json': None
+                            }
+                            chunk_log_path = log_chunk_result(
+                                chunk_index=chunk_idx,
+                                chunk_result=error_result,
+                                chunk_products=chunk,
+                                analysis_type="analysis",
+                                log_file_path=chunk_log_path
+                            )
+                    except Exception as e:
+                        # Log exception for this chunk
+                        error_result = {
+                            'success': False,
+                            'error': str(e),
+                            'parsed_json': None
+                        }
+                        chunk_log_path = log_chunk_result(
+                            chunk_index=chunk_idx,
+                            chunk_result=error_result,
+                            chunk_products=chunk,
+                            analysis_type="analysis",
+                            log_file_path=chunk_log_path
+                        )
         
-        # Log analysis results to .txt file
+        # Finalize chunk log and create summary log
         try:
-            log_path = log_analysis_results(
+            # Add summary to chunk log if it exists
+            if chunk_log_path:
+                with open(chunk_log_path, 'a', encoding='utf-8') as f:
+                    f.write(f"\n{'=' * 80}\n")
+                    f.write(f"FINAL SUMMARY\n")
+                    f.write(f"{'=' * 80}\n")
+                    f.write(f"Total Products Analyzed: {len(products_to_analyze)}\n")
+                    f.write(f"Total Products Skipped: {len(products_to_skip)}\n")
+                    f.write(f"Total Results: {len(all_results)}\n")
+                    f.write(f"Completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"{'=' * 80}\n")
+                print(f"Chunk-by-chunk analysis log: {chunk_log_path}")
+            
+            # Also create summary log file
+            summary_log_path = log_analysis_results(
                 results=all_results,
                 analysis_type="analysis",
                 total_analyzed=len(products_to_analyze),
@@ -176,8 +234,8 @@ def analyze_products():
                 total_analyzed=len(products_to_analyze),
                 total_skipped=len(products_to_skip)
             )
-            if log_path:
-                print(f"Analysis results logged to: {log_path}")
+            if summary_log_path:
+                print(f"Summary analysis log: {summary_log_path}")
             if json_log_path:
                 print(f"Analysis results (JSON) logged to: {json_log_path}")
         except Exception as e:
@@ -242,25 +300,52 @@ def _stream_analysis(products: List[Dict[str, Any]]):
             yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
             return
 
+        # Initialize log file for chunk-by-chunk logging
+        chunk_log_path = None
+
         # Process chunks sequentially for streaming (can be parallelized with more complex logic)
         for idx, chunk in enumerate(chunks):
             # Send chunk progress
             yield f"data: {json.dumps({'type': 'chunk_start', 'chunk': idx + 1, 'total_chunks': total_chunks, 'products_in_chunk': len(chunk)})}\n\n"
             
-            # Analyze chunk
-            for stream_data in analyze_service.analyze_product_chunk_streaming(chunk, conversation_id):
-                yield f"data: {stream_data}\n\n"
-                
-                # Parse the stream data to extract results
-                try:
-                    stream_obj = json.loads(stream_data)
-                    if stream_obj.get('type') == 'result' and stream_obj.get('data'):
-                        chunk_results = stream_obj['data'].get('results', [])
-                        all_results.extend(chunk_results)
-                        if stream_obj.get('conversation_id'):
-                            conversation_id = stream_obj['conversation_id']
-                except:
-                    pass
+            chunk_result = {'success': False, 'parsed_json': None, 'error': None}
+            chunk_results_data = []
+            
+            try:
+                # Analyze chunk
+                for stream_data in analyze_service.analyze_product_chunk_streaming(chunk, conversation_id):
+                    yield f"data: {stream_data}\n\n"
+                    
+                    # Parse the stream data to extract results
+                    try:
+                        stream_obj = json.loads(stream_data)
+                        if stream_obj.get('type') == 'result' and stream_obj.get('data'):
+                            chunk_results_data = stream_obj['data'].get('results', [])
+                            all_results.extend(chunk_results_data)
+                            chunk_result = {
+                                'success': True,
+                                'parsed_json': {'results': chunk_results_data},
+                                'error': None
+                            }
+                            if stream_obj.get('conversation_id'):
+                                conversation_id = stream_obj['conversation_id']
+                    except:
+                        pass
+            except Exception as e:
+                chunk_result = {
+                    'success': False,
+                    'parsed_json': None,
+                    'error': str(e)
+                }
+            
+            # Log each chunk result (success or error)
+            chunk_log_path = log_chunk_result(
+                chunk_index=idx + 1,
+                chunk_result=chunk_result,
+                chunk_products=chunk,
+                analysis_type="analysis",
+                log_file_path=chunk_log_path
+            )
             
             # Send chunk complete
             yield f"data: {json.dumps({'type': 'chunk_complete', 'chunk': idx + 1, 'total_chunks': total_chunks})}\n\n"
@@ -268,9 +353,23 @@ def _stream_analysis(products: List[Dict[str, Any]]):
         # Send final results
         yield f"data: {json.dumps({'type': 'complete', 'results': all_results, 'total_analyzed': total_to_analyze, 'total_skipped': total_skipped})}\n\n"
         
-        # Log analysis results to .txt file
+        # Finalize chunk log and create summary log
         try:
-            log_path = log_analysis_results(
+            # Add summary to chunk log if it exists
+            if chunk_log_path:
+                with open(chunk_log_path, 'a', encoding='utf-8') as f:
+                    f.write(f"\n{'=' * 80}\n")
+                    f.write(f"FINAL SUMMARY\n")
+                    f.write(f"{'=' * 80}\n")
+                    f.write(f"Total Products Analyzed: {total_to_analyze}\n")
+                    f.write(f"Total Products Skipped: {total_skipped}\n")
+                    f.write(f"Total Results: {len(all_results)}\n")
+                    f.write(f"Completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"{'=' * 80}\n")
+                print(f"Chunk-by-chunk analysis log: {chunk_log_path}")
+            
+            # Also create summary log file
+            summary_log_path = log_analysis_results(
                 results=all_results,
                 analysis_type="analysis",
                 total_analyzed=total_to_analyze,
@@ -283,8 +382,8 @@ def _stream_analysis(products: List[Dict[str, Any]]):
                 total_analyzed=total_to_analyze,
                 total_skipped=total_skipped
             )
-            if log_path:
-                print(f"Analysis results logged to: {log_path}")
+            if summary_log_path:
+                print(f"Summary analysis log: {summary_log_path}")
             if json_log_path:
                 print(f"Analysis results (JSON) logged to: {json_log_path}")
         except Exception as e:
@@ -368,25 +467,52 @@ def _stream_find_replacements(products: List[Dict[str, Any]]):
             yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
             return
         
+        # Initialize log file for chunk-by-chunk logging
+        chunk_log_path = None
+        
         # Process chunks sequentially for streaming
         for idx, chunk in enumerate(chunks):
             # Send chunk progress
             yield f"data: {json.dumps({'type': 'chunk_start', 'chunk': idx + 1, 'total_chunks': total_chunks, 'products_in_chunk': len(chunk)})}\n\n"
             
-            # Find replacements for chunk using Azure AI
-            for stream_data in replacement_service.find_replacement_chunk_streaming(chunk, conversation_id):
-                yield f"data: {stream_data}\n\n"
-                
-                # Parse the stream data to extract results
-                try:
-                    stream_obj = json.loads(stream_data)
-                    if stream_obj.get('type') == 'result' and stream_obj.get('data'):
-                        chunk_results = stream_obj['data'].get('results', [])
-                        all_results.extend(chunk_results)
-                        if stream_obj.get('conversation_id'):
-                            conversation_id = stream_obj['conversation_id']
-                except:
-                    pass
+            chunk_result = {'success': False, 'parsed_json': None, 'error': None}
+            chunk_results_data = []
+            
+            try:
+                # Find replacements for chunk using Azure AI
+                for stream_data in replacement_service.find_replacement_chunk_streaming(chunk, conversation_id):
+                    yield f"data: {stream_data}\n\n"
+                    
+                    # Parse the stream data to extract results
+                    try:
+                        stream_obj = json.loads(stream_data)
+                        if stream_obj.get('type') == 'result' and stream_obj.get('data'):
+                            chunk_results_data = stream_obj['data'].get('results', [])
+                            all_results.extend(chunk_results_data)
+                            chunk_result = {
+                                'success': True,
+                                'parsed_json': {'results': chunk_results_data},
+                                'error': None
+                            }
+                            if stream_obj.get('conversation_id'):
+                                conversation_id = stream_obj['conversation_id']
+                    except:
+                        pass
+            except Exception as e:
+                chunk_result = {
+                    'success': False,
+                    'parsed_json': None,
+                    'error': str(e)
+                }
+            
+            # Log each chunk result (success or error)
+            chunk_log_path = log_chunk_result(
+                chunk_index=idx + 1,
+                chunk_result=chunk_result,
+                chunk_products=chunk,
+                analysis_type="replacements",
+                log_file_path=chunk_log_path
+            )
             
             # Send chunk complete
             yield f"data: {json.dumps({'type': 'chunk_complete', 'chunk': idx + 1, 'total_chunks': total_chunks})}\n\n"
@@ -394,9 +520,22 @@ def _stream_find_replacements(products: List[Dict[str, Any]]):
         # Send final results
         yield f"data: {json.dumps({'type': 'complete', 'results': all_results, 'total_analyzed': len(all_results)})}\n\n"
         
-        # Log replacement finding results to .txt file
+        # Finalize chunk log and create summary log
         try:
-            log_path = log_analysis_results(
+            # Add summary to chunk log if it exists
+            if chunk_log_path:
+                with open(chunk_log_path, 'a', encoding='utf-8') as f:
+                    f.write(f"\n{'=' * 80}\n")
+                    f.write(f"FINAL SUMMARY\n")
+                    f.write(f"{'=' * 80}\n")
+                    f.write(f"Total Products Analyzed: {len(all_results)}\n")
+                    f.write(f"Total Results: {len(all_results)}\n")
+                    f.write(f"Completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"{'=' * 80}\n")
+                print(f"Chunk-by-chunk replacement finding log: {chunk_log_path}")
+            
+            # Also create summary log file
+            summary_log_path = log_analysis_results(
                 results=all_results,
                 analysis_type="replacements",
                 total_analyzed=len(all_results),
@@ -409,8 +548,8 @@ def _stream_find_replacements(products: List[Dict[str, Any]]):
                 total_analyzed=len(all_results),
                 total_skipped=0
             )
-            if log_path:
-                print(f"Replacement finding results logged to: {log_path}")
+            if summary_log_path:
+                print(f"Summary replacement finding log: {summary_log_path}")
             if json_log_path:
                 print(f"Replacement finding results (JSON) logged to: {json_log_path}")
         except Exception as e:

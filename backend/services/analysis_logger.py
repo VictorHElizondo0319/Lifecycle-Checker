@@ -204,6 +204,89 @@ def log_analysis_results(
         return ""
 
 
+def log_chunk_result(
+    chunk_index: int,
+    chunk_result: Dict[str, Any],
+    chunk_products: List[Dict[str, Any]],
+    analysis_type: str = "analysis",
+    log_file_path: str = None
+) -> str:
+    """
+    Log a single chunk result to a log file (append mode).
+    Logs both success and error cases.
+    
+    Args:
+        chunk_index: Index of the chunk (1-based)
+        chunk_result: Result dictionary from chunk processing
+        chunk_products: Original products in this chunk
+        analysis_type: Type of analysis ("analysis" or "replacements")
+        log_file_path: Path to existing log file (if None, creates new one)
+        
+    Returns:
+        Path to the log file
+    """
+    try:
+        if log_file_path is None:
+            log_dir = get_log_directory()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{analysis_type}_{timestamp}.txt"
+            log_file_path = os.path.join(log_dir, filename)
+            
+            # Create new file with header
+            with open(log_file_path, 'w', encoding='utf-8') as f:
+                f.write("=" * 80 + "\n")
+                f.write(f"Analysis Results Log - Chunk-by-Chunk\n")
+                f.write(f"Analysis Type: {analysis_type.capitalize()}\n")
+                f.write(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 80 + "\n\n")
+        
+        # Append chunk result
+        with open(log_file_path, 'a', encoding='utf-8') as f:
+            f.write(f"\n{'=' * 80}\n")
+            f.write(f"CHUNK #{chunk_index} - Processed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"{'=' * 80}\n\n")
+            
+            # Log chunk info
+            f.write(f"Products in chunk: {len(chunk_products)}\n")
+            f.write(f"Success: {chunk_result.get('success', False)}\n")
+            
+            # Log error if present
+            if not chunk_result.get('success', False):
+                error_msg = chunk_result.get('error', 'Unknown error')
+                f.write(f"ERROR: {error_msg}\n\n")
+                
+                # Log the products that failed
+                f.write("Products that failed:\n")
+                for idx, product in enumerate(chunk_products, 1):
+                    manufacturer = product.get('part_manufacturer') or product.get('manufacturer', 'N/A')
+                    part_number = product.get('manufacturer_part_number') or product.get('part_number', 'N/A')
+                    f.write(f"  {idx}. {manufacturer} - {part_number}\n")
+            
+            # Log results if successful
+            if chunk_result.get('success', False) and chunk_result.get('parsed_json'):
+                parsed_json = chunk_result.get('parsed_json', {})
+                results = parsed_json.get('results', [])
+                
+                f.write(f"\nResults: {len(results)} items\n")
+                f.write("-" * 80 + "\n\n")
+                
+                for idx, result in enumerate(results, 1):
+                    f.write(f"Result #{idx} in Chunk #{chunk_index}\n")
+                    is_replacement = analysis_type == "replacements"
+                    f.write(format_analysis_result(result, is_replacement=is_replacement))
+                    f.write("\n")
+            
+            f.write(f"\n{'=' * 80}\n")
+        
+        return log_file_path
+        
+    except Exception as e:
+        print(f"Error logging chunk result: {e}")
+        import traceback
+        traceback.print_exc()
+        return log_file_path or ""
+
+
 def log_analysis_results_json(
     results: List[Dict[str, Any]],
     analysis_type: str = "analysis",
