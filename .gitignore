@@ -64,3 +64,4 @@ htmlcov/
 *.xls
 
 /assets/
+/backend/logs/
